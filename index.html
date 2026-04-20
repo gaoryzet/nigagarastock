@@ -73,6 +73,23 @@
           <button type="submit">리그 설정 저장</button>
         </form>
 
+        <div class="league-management">
+          <div class="management-card active-league">
+            <span>활성화된 리그</span>
+            <strong id="activeLeagueLabel">새싹 투자왕 리그</strong>
+            <p id="activeLeagueMeta">참여자를 등록하면 1,000만원이 지급됩니다.</p>
+          </div>
+          <div class="management-actions">
+            <button id="newLeagueBtn" type="button">새 리그 시작</button>
+            <button id="resumeLeagueBtn" type="button" class="secondary-button">진행 재개</button>
+          </div>
+          <div class="management-card closed-league">
+            <span>종료된 리그</span>
+            <strong id="closedLeagueCount">0개</strong>
+            <p id="closedLeagueList">아직 종료된 리그가 없습니다.</p>
+          </div>
+        </div>
+
         <div class="invite-panel">
           <p>초대 코드</p>
           <div class="invite-code" id="inviteCode">KING-1000</div>

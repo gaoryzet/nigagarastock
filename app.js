@@ -1,5 +1,5 @@
 const INITIAL_CASH = 10000000;
-const STORAGE_KEY = "nigaGaraInvestmentKingStateV2";
+const STORAGE_KEY = "nigaGaraInvestmentKingStateV3";
 
 const DEFAULT_STOCKS = [
   { symbol: "005930", name: "삼성전자", market: "KOSPI", price: 80200, change: 1.4 },
@@ -16,50 +16,32 @@ const DEFAULT_STOCKS = [
 
 let stocks = [...DEFAULT_STOCKS];
 
-const defaultEndDate = new Date();
-defaultEndDate.setDate(defaultEndDate.getDate() + 14);
+function createEndDate(days = 14) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
-const initialState = {
-  league: {
-    name: "새싹 투자왕 리그",
-    inviteCode: "KING-1000",
-    initialCash: INITIAL_CASH,
-    endDate: defaultEndDate.toISOString().slice(0, 10),
-    status: "ACTIVE"
-  },
-  activeParticipantId: "p1",
-  selectedSymbol: "005930",
-  searchQuery: "",
-  participants: [
-    {
-      id: "p1",
-      nickname: "나",
-      cash: INITIAL_CASH,
-      holdings: [],
-      history: []
+function createInviteCode() {
+  return `KING-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function createInitialState() {
+  return {
+    league: {
+      name: "새싹 투자왕 리그",
+      inviteCode: "KING-1000",
+      initialCash: INITIAL_CASH,
+      endDate: createEndDate(),
+      status: "ACTIVE"
     },
-    {
-      id: "p2",
-      nickname: "친구A",
-      cash: 2380000,
-      holdings: [
-        { symbol: "000660", quantity: 24, buyPrice: 198000 },
-        { symbol: "035720", quantity: 52, buyPrice: 47200 }
-      ],
-      history: []
-    },
-    {
-      id: "p3",
-      nickname: "친구B",
-      cash: 4120000,
-      holdings: [
-        { symbol: "005930", quantity: 45, buyPrice: 81200 },
-        { symbol: "068270", quantity: 13, buyPrice: 178000 }
-      ],
-      history: []
-    }
-  ]
-};
+    activeParticipantId: "",
+    selectedSymbol: "005930",
+    searchQuery: "",
+    participants: [],
+    closedLeagues: []
+  };
+}
 
 let state = loadState();
 
@@ -71,6 +53,12 @@ const els = {
   leagueForm: document.querySelector("#leagueForm"),
   leagueInput: document.querySelector("#leagueInput"),
   endDateInput: document.querySelector("#endDateInput"),
+  activeLeagueLabel: document.querySelector("#activeLeagueLabel"),
+  activeLeagueMeta: document.querySelector("#activeLeagueMeta"),
+  closedLeagueCount: document.querySelector("#closedLeagueCount"),
+  closedLeagueList: document.querySelector("#closedLeagueList"),
+  newLeagueBtn: document.querySelector("#newLeagueBtn"),
+  resumeLeagueBtn: document.querySelector("#resumeLeagueBtn"),
   inviteCode: document.querySelector("#inviteCode"),
   inviteLink: document.querySelector("#inviteLink"),
   joinForm: document.querySelector("#joinForm"),
@@ -94,10 +82,23 @@ const els = {
 function loadState() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : structuredClone(initialState);
+    const nextState = stored ? JSON.parse(stored) : createInitialState();
+    return normalizeState(nextState);
   } catch {
-    return structuredClone(initialState);
+    return createInitialState();
   }
+}
+
+function normalizeState(nextState) {
+  const base = createInitialState();
+  const merged = { ...base, ...nextState };
+  merged.league = { ...base.league, ...(nextState.league || {}) };
+  merged.participants = Array.isArray(nextState.participants) ? nextState.participants : [];
+  merged.closedLeagues = Array.isArray(nextState.closedLeagues) ? nextState.closedLeagues : [];
+  if (!merged.participants.some((participant) => participant.id === merged.activeParticipantId)) {
+    merged.activeParticipantId = merged.participants[0]?.id || "";
+  }
+  return merged;
 }
 
 function saveState() {
@@ -114,11 +115,11 @@ function formatRate(value) {
 }
 
 function normalize(value) {
-  return value.replace(/\s/g, "").toLowerCase();
+  return String(value).replace(/\s/g, "").toLowerCase();
 }
 
 function getStock(symbol) {
-  return stocks.find((stock) => stock.symbol === symbol);
+  return stocks.find((stock) => stock.symbol === symbol) || DEFAULT_STOCKS.find((stock) => stock.symbol === symbol);
 }
 
 function getFilteredStocks() {
@@ -135,7 +136,7 @@ function getFilteredStocks() {
 }
 
 function hasMarketApi() {
-  return Boolean(window.NGIK_CONFIG?.MARKET_DATA_FUNCTION_URL && window.NGIK_CONFIG?.SUPABASE_ANON_KEY);
+  return Boolean(window.NGIK_CONFIG?.MARKET_DATA_FUNCTION_URL);
 }
 
 async function fetchMarketData(query = "") {
@@ -144,12 +145,7 @@ async function fetchMarketData(query = "") {
   const url = new URL(window.NGIK_CONFIG.MARKET_DATA_FUNCTION_URL);
   if (query) url.searchParams.set("query", query);
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${window.NGIK_CONFIG.SUPABASE_ANON_KEY}`,
-      apikey: window.NGIK_CONFIG.SUPABASE_ANON_KEY
-    }
-  });
+  const response = await fetch(url.toString());
 
   if (!response.ok) {
     throw new Error(`Market API error: ${response.status}`);
@@ -184,7 +180,7 @@ async function refreshStocks(query = "") {
 function calculateParticipant(participant) {
   const valuation = participant.holdings.reduce((sum, holding) => {
     const stock = getStock(holding.symbol);
-    return sum + holding.quantity * stock.price;
+    return stock ? sum + holding.quantity * stock.price : sum;
   }, 0);
   const totalAsset = participant.cash + valuation;
   const profit = totalAsset - INITIAL_CASH;
@@ -210,7 +206,7 @@ function getRankings() {
 }
 
 function getActiveParticipant() {
-  return state.participants.find((item) => item.id === state.activeParticipantId) || state.participants[0];
+  return state.participants.find((item) => item.id === state.activeParticipantId) || state.participants[0] || null;
 }
 
 function isClosed() {
@@ -226,7 +222,7 @@ function showToast(message) {
 function renderHeader() {
   const rankings = getRankings();
   const active = getActiveParticipant();
-  const activeRank = rankings.findIndex((item) => item.id === active.id) + 1;
+  const activeRank = active ? rankings.findIndex((item) => item.id === active.id) + 1 : 0;
   const today = new Date();
   const end = new Date(`${state.league.endDate}T23:59:59`);
   const daysLeft = Math.max(0, Math.ceil((end - today) / 86400000));
@@ -239,12 +235,30 @@ function renderHeader() {
   els.inviteLink.href = inviteUrl;
   els.inviteLink.textContent = inviteUrl;
   els.daysLeft.textContent = isClosed() ? "종료" : `${daysLeft}일`;
-  els.myRank.textContent = `${activeRank}위`;
+  els.myRank.textContent = activeRank ? `${activeRank}위` : "참여 전";
   els.leagueStatus.textContent = isClosed() ? "종료됨" : "진행 중";
   els.leagueStatus.classList.toggle("closed", isClosed());
 }
 
+function renderLeagueManagement() {
+  els.activeLeagueLabel.textContent = state.league.name;
+  els.activeLeagueMeta.textContent = isClosed()
+    ? "이 리그는 종료되었습니다. 새 리그를 시작하거나 진행 재개를 누르세요."
+    : `${state.participants.length}명 참여 중 · 종료일 ${state.league.endDate}`;
+  els.closedLeagueCount.textContent = `${state.closedLeagues.length}개`;
+  els.closedLeagueList.textContent = state.closedLeagues.length
+    ? state.closedLeagues.map((league) => league.name).slice(-3).join(", ")
+    : "아직 종료된 리그가 없습니다.";
+  els.resumeLeagueBtn.disabled = !isClosed();
+  els.closeLeagueBtn.disabled = isClosed();
+}
+
 function renderParticipants() {
+  if (!state.participants.length) {
+    els.participants.innerHTML = `<p class="empty">아직 참여자가 없습니다. 닉네임을 등록하면 1,000만원이 지급됩니다.</p>`;
+    return;
+  }
+
   els.participants.innerHTML = state.participants
     .map((participant) => {
       const metrics = calculateParticipant(participant);
@@ -263,6 +277,11 @@ function renderParticipants() {
 }
 
 function renderActiveSelect() {
+  if (!state.participants.length) {
+    els.activeUserSelect.innerHTML = `<option value="">참여자를 먼저 등록</option>`;
+    return;
+  }
+
   els.activeUserSelect.innerHTML = state.participants
     .map((participant) => {
       const selected = participant.id === state.activeParticipantId ? "selected" : "";
@@ -273,6 +292,10 @@ function renderActiveSelect() {
 
 function renderSelectedStock() {
   const stock = getStock(state.selectedSymbol);
+  if (!stock) {
+    els.selectedStockPanel.innerHTML = `<p>종목을 선택해주세요.</p>`;
+    return;
+  }
   const className = stock.change >= 0 ? "gain" : "loss";
   els.selectedStockPanel.innerHTML = `
     <div>
@@ -320,6 +343,11 @@ function renderStocks() {
 
 function renderWallet() {
   const active = getActiveParticipant();
+  if (!active) {
+    els.cashBalance.textContent = "참여 전";
+    els.totalAsset.textContent = "참여 전";
+    return;
+  }
   const metrics = calculateParticipant(active);
   els.cashBalance.textContent = formatWon(active.cash);
   els.totalAsset.textContent = formatWon(metrics.totalAsset);
@@ -327,6 +355,10 @@ function renderWallet() {
 
 function renderHoldings() {
   const active = getActiveParticipant();
+  if (!active) {
+    els.holdingsList.innerHTML = `<p class="empty">리그에서 사용할 닉네임을 먼저 등록해주세요.</p>`;
+    return;
+  }
   if (!active.holdings.length) {
     els.holdingsList.innerHTML = `<p class="empty">아직 보유 종목이 없습니다.</p>`;
     return;
@@ -357,6 +389,11 @@ function renderHoldings() {
 
 function renderRankings() {
   const rankings = getRankings();
+  if (!rankings.length) {
+    els.rankingList.innerHTML = `<p class="empty">참여자가 등록되면 랭킹이 표시됩니다.</p>`;
+    return;
+  }
+
   els.rankingList.innerHTML = rankings
     .map((participant, index) => {
       const className = participant.metrics.returnRate >= 0 ? "gain" : "loss";
@@ -379,6 +416,10 @@ function renderRankings() {
 
 function renderHistory() {
   const active = getActiveParticipant();
+  if (!active) {
+    els.historyList.innerHTML = `<p class="empty">리그 참여 후 거래 기록이 표시됩니다.</p>`;
+    return;
+  }
   if (!active.history.length) {
     els.historyList.innerHTML = `<p class="empty">거래 기록이 없습니다.</p>`;
     return;
@@ -398,6 +439,7 @@ function renderHistory() {
 
 function render() {
   renderHeader();
+  renderLeagueManagement();
   renderParticipants();
   renderActiveSelect();
   renderStocks();
@@ -423,14 +465,43 @@ function addHistory(participant, type, stock, amount, quantity) {
   });
 }
 
+function startNewLeague() {
+  if (state.participants.length || isClosed()) {
+    state.closedLeagues.push({
+      name: state.league.name,
+      status: state.league.status,
+      endedAt: new Date().toLocaleDateString("ko-KR"),
+      participantCount: state.participants.length
+    });
+  }
+
+  state.league = {
+    name: els.leagueInput.value.trim() || "새싹 투자왕 리그",
+    inviteCode: createInviteCode(),
+    initialCash: INITIAL_CASH,
+    endDate: els.endDateInput.value || createEndDate(),
+    status: "ACTIVE"
+  };
+  state.participants = [];
+  state.activeParticipantId = "";
+  state.searchQuery = "";
+  showToast("새 리그가 시작되었습니다. 참여자를 등록해주세요.");
+  render();
+}
+
 async function buySelectedStock() {
   if (isClosed()) {
     showToast("종료된 리그에서는 거래할 수 없습니다.");
     return;
   }
 
-  await refreshStocks(state.selectedSymbol);
   const active = getActiveParticipant();
+  if (!active) {
+    showToast("먼저 리그 참여 닉네임을 등록해주세요.");
+    return;
+  }
+
+  await refreshStocks(state.selectedSymbol);
   const stock = getStock(state.selectedSymbol);
   const amount = Number(els.buyAmountInput.value.replaceAll(",", ""));
 
@@ -469,7 +540,7 @@ function sellHolding(symbol) {
   }
 
   const active = getActiveParticipant();
-  const holdingIndex = active.holdings.findIndex((item) => item.symbol === symbol);
+  const holdingIndex = active?.holdings.findIndex((item) => item.symbol === symbol) ?? -1;
   if (holdingIndex === -1) return;
 
   const holding = active.holdings[holdingIndex];
@@ -495,14 +566,27 @@ els.leagueForm.addEventListener("submit", (event) => {
   event.preventDefault();
   state.league.name = els.leagueInput.value.trim() || "새싹 투자왕 리그";
   state.league.endDate = els.endDateInput.value || state.league.endDate;
+  if (isClosed()) {
+    state.league.status = "ACTIVE";
+  }
   showToast("리그 설정을 저장했습니다.");
+  render();
+});
+
+els.newLeagueBtn.addEventListener("click", () => {
+  startNewLeague();
+});
+
+els.resumeLeagueBtn.addEventListener("click", () => {
+  state.league.status = "ACTIVE";
+  showToast("리그를 진행 중으로 되돌렸습니다.");
   render();
 });
 
 els.joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (isClosed()) {
-    showToast("종료된 리그에는 참여할 수 없습니다.");
+    showToast("종료된 리그에는 참여할 수 없습니다. 새 리그를 시작해주세요.");
     return;
   }
 
@@ -575,6 +659,12 @@ els.holdingsList.addEventListener("click", (event) => {
 
 els.closeLeagueBtn.addEventListener("click", () => {
   state.league.status = "CLOSED";
+  state.closedLeagues.push({
+    name: state.league.name,
+    status: "CLOSED",
+    endedAt: new Date().toLocaleDateString("ko-KR"),
+    participantCount: state.participants.length
+  });
   showToast("리그가 종료되어 최종 순위가 고정되었습니다.");
   render();
 });

@@ -23,7 +23,7 @@ niga-gara-investment-king/
   .env.example
   supabase/
     functions/
-      market-data/
+      quick-handler/
         index.ts
     migrations/
       001_initial_schema.sql
@@ -113,7 +113,7 @@ supabase/migrations/001_initial_schema.sql
 
 1. Supabase 프로젝트 왼쪽 메뉴에서 `Edge Functions`를 엽니다.
 2. `Create a new function`을 누릅니다.
-3. 함수 이름을 `market-data`로 입력합니다.
+3. 함수 이름을 `quick-handler`로 입력합니다.
 4. 코드 편집 화면에 아래 파일 내용을 붙여넣습니다.
 
 ```text
@@ -125,7 +125,7 @@ supabase/functions/market-data/index.ts
 배포 후 함수 주소는 보통 이런 형태입니다.
 
 ```text
-https://프로젝트ID.supabase.co/functions/v1/market-data
+https://프로젝트ID.supabase.co/functions/v1/quick-handler
 ```
 
 ## 7. 증권 API 키를 Supabase에 저장하기
@@ -149,7 +149,7 @@ GitHub에 올린 앱이 Supabase 함수를 부르려면 `config.js`를 수정해
 
 ```js
 window.NGIK_CONFIG = {
-  MARKET_DATA_FUNCTION_URL: "https://프로젝트ID.supabase.co/functions/v1/market-data",
+  MARKET_DATA_FUNCTION_URL: "https://프로젝트ID.supabase.co/functions/v1/quick-handler",
   SUPABASE_ANON_KEY: "Supabase anon key"
 };
 ```
@@ -172,14 +172,14 @@ Supabase anon key 찾는 곳:
 2. `투자` 탭을 누릅니다.
 3. 검색창에 `삼성전자` 또는 `005930`을 입력합니다.
 4. 종목이 나오면 연결 성공입니다.
-5. 개발자 도구를 열 수 있다면 Network 탭에서 `market-data` 요청이 보이는지 확인합니다.
+5. 개발자 도구를 열 수 있다면 Network 탭에서 `quick-handler` 요청이 보이는지 확인합니다.
 
 ## 10. 현재 구현 상태
 
 지금 앱은 세 단계로 동작합니다.
 
 1. `config.js`에 Supabase 함수 주소가 없으면 샘플 종목으로 작동합니다.
-2. Supabase 함수 주소가 있으면 `market-data` 함수를 호출합니다.
+2. Supabase 함수 주소가 있으면 `quick-handler` 함수를 호출합니다.
 3. Supabase 함수에 실제 증권 API Secret이 있으면 실제 API를 호출하고, 없으면 샘플 데이터를 반환합니다.
 
 그래서 처음에는 API 없이 배포 테스트를 할 수 있고, 나중에 증권 API 키를 받은 뒤 Secret만 추가하면 됩니다.
@@ -215,4 +215,3 @@ fetchFromExternalProvider(query)
 ```
 
 프론트 앱은 이 형태만 받으면 종목 검색, 현재가 표시, 시장가 모의 체결을 그대로 할 수 있습니다.
-
