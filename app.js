@@ -1,672 +1,976 @@
-const INITIAL_CASH = 10000000;
-const STORAGE_KEY = "nigaGaraInvestmentKingStateV3";
+const SUPABASE_URL = "https://jagbzzjmtxugdbuhjbij.supabase.co";
+const SUPABASE_KEY = "sb_publishable_SsA8yT__1nGHdEUHshfLVw_5RCq_5cU";
+const UI_STORAGE_KEY = "ewonTodo.ui.v1";
 
-const DEFAULT_STOCKS = [
-  { symbol: "005930", name: "삼성전자", market: "KOSPI", price: 80200, change: 1.4 },
-  { symbol: "035420", name: "NAVER", market: "KOSPI", price: 186500, change: -0.8 },
-  { symbol: "035720", name: "카카오", market: "KOSPI", price: 49300, change: 2.1 },
-  { symbol: "000660", name: "SK하이닉스", market: "KOSPI", price: 214000, change: 3.2 },
-  { symbol: "005380", name: "현대차", market: "KOSPI", price: 258000, change: -1.1 },
-  { symbol: "068270", name: "셀트리온", market: "KOSPI", price: 183400, change: 0.6 },
-  { symbol: "373220", name: "LG에너지솔루션", market: "KOSPI", price: 389000, change: 0.9 },
-  { symbol: "207940", name: "삼성바이오로직스", market: "KOSPI", price: 832000, change: -0.3 },
-  { symbol: "AAPL", name: "Apple", market: "NASDAQ", price: 245000, change: 1.1 },
-  { symbol: "TSLA", name: "Tesla", market: "NASDAQ", price: 286000, change: -1.7 }
-];
+const categories = {
+  illustration: "일러스트",
+  branding: "브랜딩",
+  order: "발주",
+  etc: "기타",
+};
 
-let stocks = [...DEFAULT_STOCKS];
+const scheduleTones = {
+  urgent: { label: "가장 급함", color: "#d9413a" },
+  starting: { label: "시작단계", color: "#d7a21f" },
+  relaxed: { label: "여유있음", color: "#3e8f55" },
+  later: { label: "여유 일정", color: "#d8dadd", text: "#3f4347" },
+};
 
-function createEndDate(days = 14) {
+const projectTypes = {
+  complex: "복합 프로젝트",
+  single: "단발 프로젝트",
+};
+
+const profileColors = ["#176d6b", "#d9413a", "#3e8f55", "#6f5e96"];
+
+const savedUi = readSavedUi();
+const state = {
+  currentUserId: savedUi.currentUserId || "",
+  activeView: savedUi.activeView || "dashboard",
+  activeCategory: savedUi.activeCategory || "all",
+  calendarDate: savedUi.calendarDate || new Date().toISOString(),
+  editingProjectId: "",
+  users: [],
+  projects: [],
+  schedules: [],
+  loading: true,
+  error: "",
+};
+
+const els = {
+  navItems: document.querySelectorAll(".nav-item"),
+  views: document.querySelectorAll(".view"),
+  viewTitle: document.getElementById("viewTitle"),
+  viewEyebrow: document.getElementById("viewEyebrow"),
+  currentUserSelect: document.getElementById("currentUserSelect"),
+  projectFilter: document.getElementById("projectFilter"),
+  userFilter: document.getElementById("userFilter"),
+  categoryFilter: document.getElementById("categoryFilter"),
+  statusFilter: document.getElementById("statusFilter"),
+  summaryGrid: document.getElementById("summaryGrid"),
+  projectGrid: document.getElementById("projectGrid"),
+  calendarGrid: document.getElementById("calendarGrid"),
+  mobileCalendarList: document.getElementById("mobileCalendarList"),
+  calendarTitle: document.getElementById("calendarTitle"),
+  prevMonth: document.getElementById("prevMonth"),
+  nextMonth: document.getElementById("nextMonth"),
+  categoryTabs: document.getElementById("categoryTabs"),
+  categoryTable: document.getElementById("categoryTable"),
+  userList: document.getElementById("userList"),
+  projectModal: document.getElementById("projectModal"),
+  projectForm: document.getElementById("projectForm"),
+  projectModalTitle: document.getElementById("projectModalTitle"),
+  projectSubmitButton: document.getElementById("projectSubmitButton"),
+  openProjectModal: document.getElementById("openProjectModal"),
+  closeProjectModal: document.getElementById("closeProjectModal"),
+  detailScheduleBox: document.getElementById("detailScheduleBox"),
+  detailRows: document.getElementById("detailRows"),
+  addDetailRow: document.getElementById("addDetailRow"),
+  userForm: document.getElementById("userForm"),
+};
+
+const viewCopy = {
+  dashboard: ["Project overview", "프로젝트별 일정"],
+  calendar: ["Calendar", "캘린더"],
+  categories: ["Category list", "카테고리 리스트"],
+  users: ["Team", "사용자 관리"],
+};
+
+function readSavedUi() {
+  try {
+    return JSON.parse(localStorage.getItem(UI_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveUi() {
+  localStorage.setItem(
+    UI_STORAGE_KEY,
+    JSON.stringify({
+      currentUserId: state.currentUserId,
+      activeView: state.activeView,
+      activeCategory: state.activeCategory,
+      calendarDate: state.calendarDate,
+    })
+  );
+}
+
+function offsetDate(days) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
-function createInviteCode() {
-  return `KING-${Math.floor(1000 + Math.random() * 9000)}`;
+function byId(list, id) {
+  return list.find((item) => item.id === id);
 }
 
-function createInitialState() {
+function currentUser() {
+  return byId(state.users, state.currentUserId) || state.users[0];
+}
+
+function dbUserToApp(row) {
   return {
-    league: {
-      name: "새싹 투자왕 리그",
-      inviteCode: "KING-1000",
-      initialCash: INITIAL_CASH,
-      endDate: createEndDate(),
-      status: "ACTIVE"
-    },
-    activeParticipantId: "",
-    selectedSymbol: "005930",
-    searchQuery: "",
-    participants: [],
-    closedLeagues: []
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    profileColor: row.profile_color,
   };
 }
 
-let state = loadState();
+function dbProjectToApp(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    clientName: row.client_name,
+    color: row.color,
+    type: row.type,
+    category: row.category,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    status: row.status,
+  };
+}
 
-const els = {
-  leagueName: document.querySelector("#leagueName"),
-  leagueStatus: document.querySelector("#leagueStatus"),
-  daysLeft: document.querySelector("#daysLeft"),
-  myRank: document.querySelector("#myRank"),
-  leagueForm: document.querySelector("#leagueForm"),
-  leagueInput: document.querySelector("#leagueInput"),
-  endDateInput: document.querySelector("#endDateInput"),
-  activeLeagueLabel: document.querySelector("#activeLeagueLabel"),
-  activeLeagueMeta: document.querySelector("#activeLeagueMeta"),
-  closedLeagueCount: document.querySelector("#closedLeagueCount"),
-  closedLeagueList: document.querySelector("#closedLeagueList"),
-  newLeagueBtn: document.querySelector("#newLeagueBtn"),
-  resumeLeagueBtn: document.querySelector("#resumeLeagueBtn"),
-  inviteCode: document.querySelector("#inviteCode"),
-  inviteLink: document.querySelector("#inviteLink"),
-  joinForm: document.querySelector("#joinForm"),
-  nicknameInput: document.querySelector("#nicknameInput"),
-  participants: document.querySelector("#participants"),
-  activeUserSelect: document.querySelector("#activeUserSelect"),
-  cashBalance: document.querySelector("#cashBalance"),
-  totalAsset: document.querySelector("#totalAsset"),
-  stockSearchInput: document.querySelector("#stockSearchInput"),
-  selectedStockPanel: document.querySelector("#selectedStockPanel"),
-  stockList: document.querySelector("#stockList"),
-  buyForm: document.querySelector("#buyForm"),
-  buyAmountInput: document.querySelector("#buyAmountInput"),
-  holdingsList: document.querySelector("#holdingsList"),
-  rankingList: document.querySelector("#rankingList"),
-  historyList: document.querySelector("#historyList"),
-  closeLeagueBtn: document.querySelector("#closeLeagueBtn"),
-  toast: document.querySelector("#toast")
-};
+function dbScheduleToApp(row) {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    phase: row.phase,
+    title: row.title,
+    clientName: row.client_name,
+    content: row.content || "",
+    startDate: row.start_date,
+    endDate: row.end_date,
+    category: row.category,
+    status: row.status,
+    assigneeUserId: row.assignee_user_id,
+  };
+}
 
-function loadState() {
+function userToDb(user) {
+  return {
+    name: user.name,
+    email: user.email,
+    profile_color: user.profileColor,
+  };
+}
+
+function projectToDb(project) {
+  return {
+    name: project.name,
+    client_name: project.clientName,
+    color: project.color,
+    type: project.type,
+    category: project.category,
+    start_date: project.startDate,
+    end_date: project.endDate,
+    status: project.status,
+  };
+}
+
+function scheduleToDb(schedule) {
+  return {
+    project_id: schedule.projectId,
+    phase: schedule.phase,
+    title: schedule.title,
+    client_name: schedule.clientName,
+    content: schedule.content || "",
+    start_date: schedule.startDate,
+    end_date: schedule.endDate,
+    category: schedule.category,
+    status: schedule.status,
+    assignee_user_id: schedule.assigneeUserId || null,
+  };
+}
+
+async function supabaseRequest(path, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Supabase request failed: ${response.status}`);
+  }
+
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function loadData() {
+  state.loading = true;
+  state.error = "";
+  render();
+
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const nextState = stored ? JSON.parse(stored) : createInitialState();
-    return normalizeState(nextState);
-  } catch {
-    return createInitialState();
+    let [users, projects, schedules] = await Promise.all([
+      supabaseRequest("app_users?select=*&order=created_at.asc"),
+      supabaseRequest("projects?select=*&order=created_at.asc"),
+      supabaseRequest("schedules?select=*&order=start_date.asc"),
+    ]);
+
+    if (users.length === 0 && projects.length === 0 && schedules.length === 0) {
+      await seedInitialData();
+      [users, projects, schedules] = await Promise.all([
+        supabaseRequest("app_users?select=*&order=created_at.asc"),
+        supabaseRequest("projects?select=*&order=created_at.asc"),
+        supabaseRequest("schedules?select=*&order=start_date.asc"),
+      ]);
+    }
+
+    state.users = users.map(dbUserToApp);
+    state.projects = projects.map(dbProjectToApp);
+    state.schedules = schedules.map(dbScheduleToApp);
+    if (!state.users.some((user) => user.id === state.currentUserId)) {
+      state.currentUserId = state.users[0]?.id || "";
+    }
+    state.loading = false;
+    saveUi();
+    render();
+  } catch (error) {
+    state.loading = false;
+    state.error = "Supabase 연결에 실패했습니다. supabase-schema.sql을 먼저 실행했는지 확인해주세요.";
+    console.error(error);
+    render();
   }
 }
 
-function normalizeState(nextState) {
-  const base = createInitialState();
-  const merged = { ...base, ...nextState };
-  merged.league = { ...base.league, ...(nextState.league || {}) };
-  merged.participants = Array.isArray(nextState.participants) ? nextState.participants : [];
-  merged.closedLeagues = Array.isArray(nextState.closedLeagues) ? nextState.closedLeagues : [];
-  if (!merged.participants.some((participant) => participant.id === merged.activeParticipantId)) {
-    merged.activeParticipantId = merged.participants[0]?.id || "";
-  }
-  return merged;
-}
+async function seedInitialData() {
+  const createdUsers = await supabaseRequest("app_users", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify([
+      userToDb({ name: "Admin", email: "zzummm@naver.com", profileColor: "#176d6b" }),
+      userToDb({ name: "지안", email: "jian@studio.kr", profileColor: "#d9413a" }),
+      userToDb({ name: "민우", email: "minwoo@studio.kr", profileColor: "#3e8f55" }),
+    ]),
+  });
 
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
+  const admin = createdUsers[0];
+  const jian = createdUsers[1];
+  const createdProjects = await supabaseRequest("projects", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify([
+      projectToDb({
+        name: "A브랜드 리뉴얼",
+        clientName: "A브랜드",
+        color: "#176d6b",
+        type: "complex",
+        category: "branding",
+        startDate: offsetDate(1),
+        endDate: offsetDate(16),
+        status: "pending",
+      }),
+      projectToDb({
+        name: "B출판 표지",
+        clientName: "B출판사",
+        color: "#6f5e96",
+        type: "single",
+        category: "illustration",
+        startDate: offsetDate(4),
+        endDate: offsetDate(10),
+        status: "pending",
+      }),
+    ]),
+  });
 
-function formatWon(value) {
-  return `${Math.round(value).toLocaleString("ko-KR")}원`;
-}
-
-function formatRate(value) {
-  const prefix = value > 0 ? "+" : "";
-  return `${prefix}${value.toFixed(2)}%`;
-}
-
-function normalize(value) {
-  return String(value).replace(/\s/g, "").toLowerCase();
-}
-
-function getStock(symbol) {
-  return stocks.find((stock) => stock.symbol === symbol) || DEFAULT_STOCKS.find((stock) => stock.symbol === symbol);
-}
-
-function getFilteredStocks() {
-  const query = normalize(state.searchQuery || "");
-  if (!query) return stocks;
-
-  return stocks.filter((stock) => {
-    return (
-      normalize(stock.name).includes(query) ||
-      normalize(stock.symbol).includes(query) ||
-      normalize(stock.market).includes(query)
-    );
+  await supabaseRequest("schedules", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify([
+      scheduleToDb({
+        projectId: createdProjects[0].id,
+        phase: "로고",
+        title: "로고 2차 시안 전달",
+        clientName: "A브랜드",
+        content: "로고 시안과 컬러 가이드 정리",
+        startDate: offsetDate(1),
+        endDate: offsetDate(3),
+        category: "branding",
+        status: "pending",
+        assigneeUserId: jian.id,
+      }),
+      scheduleToDb({
+        projectId: createdProjects[0].id,
+        phase: "매뉴얼 제작",
+        title: "브랜드 매뉴얼 제작",
+        clientName: "A브랜드",
+        content: "로고 사용 규정, 컬러, 서체 페이지 구성",
+        startDate: offsetDate(5),
+        endDate: offsetDate(9),
+        category: "branding",
+        status: "pending",
+        assigneeUserId: admin.id,
+      }),
+      scheduleToDb({
+        projectId: createdProjects[0].id,
+        phase: "패키지 제작",
+        title: "패키지 시안 제작",
+        clientName: "A브랜드",
+        content: "패키지 전면, 측면, 후면 시안 제작",
+        startDate: offsetDate(10),
+        endDate: offsetDate(16),
+        category: "branding",
+        status: "pending",
+        assigneeUserId: admin.id,
+      }),
+      scheduleToDb({
+        projectId: createdProjects[1].id,
+        phase: "단발 프로젝트",
+        title: "표지 일러스트 러프",
+        clientName: "B출판사",
+        content: "표지용 러프 3안 업로드",
+        startDate: offsetDate(4),
+        endDate: offsetDate(10),
+        category: "illustration",
+        status: "pending",
+        assigneeUserId: admin.id,
+      }),
+    ]),
   });
 }
 
-function hasMarketApi() {
-  return Boolean(window.NGIK_CONFIG?.MARKET_DATA_FUNCTION_URL);
+function filteredSchedules() {
+  return state.schedules.filter((schedule) => {
+    const projectOk = els.projectFilter.value === "all" || schedule.projectId === els.projectFilter.value;
+    const userOk = els.userFilter.value === "all" || schedule.assigneeUserId === els.userFilter.value;
+    const categoryOk = els.categoryFilter.value === "all" || schedule.category === els.categoryFilter.value;
+    const statusOk = els.statusFilter.value === "all" || schedule.status === els.statusFilter.value;
+    return projectOk && userOk && categoryOk && statusOk;
+  });
 }
 
-async function fetchMarketData(query = "") {
-  if (!hasMarketApi()) return null;
-
-  const url = new URL(window.NGIK_CONFIG.MARKET_DATA_FUNCTION_URL);
-  if (query) url.searchParams.set("query", query);
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    throw new Error(`Market API error: ${response.status}`);
-  }
-
-  const payload = await response.json();
-  return Array.isArray(payload.stocks) ? payload.stocks : null;
-}
-
-async function refreshStocks(query = "") {
-  try {
-    const remoteStocks = await fetchMarketData(query);
-    if (!remoteStocks?.length) return;
-
-    stocks = remoteStocks.map((stock) => ({
-      symbol: String(stock.symbol),
-      name: String(stock.name),
-      market: String(stock.market || "UNKNOWN"),
-      price: Number(stock.price),
-      change: Number(stock.change || 0)
-    }));
-
-    if (!getStock(state.selectedSymbol)) {
-      state.selectedSymbol = stocks[0].symbol;
-    }
-  } catch (error) {
-    console.warn(error);
-    showToast("시세 API 연결 실패. 샘플 가격으로 계속 진행합니다.");
-  }
-}
-
-function calculateParticipant(participant) {
-  const valuation = participant.holdings.reduce((sum, holding) => {
-    const stock = getStock(holding.symbol);
-    return stock ? sum + holding.quantity * stock.price : sum;
-  }, 0);
-  const totalAsset = participant.cash + valuation;
-  const profit = totalAsset - INITIAL_CASH;
-  const returnRate = (profit / INITIAL_CASH) * 100;
-  return { valuation, totalAsset, profit, returnRate };
-}
-
-function getRankings() {
-  return state.participants
-    .map((participant) => ({
-      ...participant,
-      metrics: calculateParticipant(participant)
-    }))
-    .sort((a, b) => {
-      if (b.metrics.totalAsset !== a.metrics.totalAsset) {
-        return b.metrics.totalAsset - a.metrics.totalAsset;
-      }
-      if (b.metrics.returnRate !== a.metrics.returnRate) {
-        return b.metrics.returnRate - a.metrics.returnRate;
-      }
-      return a.nickname.localeCompare(b.nickname, "ko-KR");
-    });
-}
-
-function getActiveParticipant() {
-  return state.participants.find((item) => item.id === state.activeParticipantId) || state.participants[0] || null;
-}
-
-function isClosed() {
-  return state.league.status === "CLOSED";
-}
-
-function showToast(message) {
-  els.toast.textContent = message;
-  els.toast.classList.add("show");
-  window.setTimeout(() => els.toast.classList.remove("show"), 1900);
-}
-
-function renderHeader() {
-  const rankings = getRankings();
-  const active = getActiveParticipant();
-  const activeRank = active ? rankings.findIndex((item) => item.id === active.id) + 1 : 0;
+function dDay(dateString) {
   const today = new Date();
-  const end = new Date(`${state.league.endDate}T23:59:59`);
-  const daysLeft = Math.max(0, Math.ceil((end - today) / 86400000));
-
-  els.leagueName.textContent = state.league.name;
-  els.leagueInput.value = state.league.name;
-  els.endDateInput.value = state.league.endDate;
-  els.inviteCode.textContent = state.league.inviteCode;
-  const inviteUrl = `${window.location.href.split("?")[0]}?join=${encodeURIComponent(state.league.inviteCode)}`;
-  els.inviteLink.href = inviteUrl;
-  els.inviteLink.textContent = inviteUrl;
-  els.daysLeft.textContent = isClosed() ? "종료" : `${daysLeft}일`;
-  els.myRank.textContent = activeRank ? `${activeRank}위` : "참여 전";
-  els.leagueStatus.textContent = isClosed() ? "종료됨" : "진행 중";
-  els.leagueStatus.classList.toggle("closed", isClosed());
+  const target = new Date(`${dateString}T00:00:00`);
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((target - today) / 86400000);
+  if (diff === 0) return "D-Day";
+  if (diff > 0) return `D-${diff}`;
+  return `D+${Math.abs(diff)}`;
 }
 
-function renderLeagueManagement() {
-  els.activeLeagueLabel.textContent = state.league.name;
-  els.activeLeagueMeta.textContent = isClosed()
-    ? "이 리그는 종료되었습니다. 새 리그를 시작하거나 진행 재개를 누르세요."
-    : `${state.participants.length}명 참여 중 · 종료일 ${state.league.endDate}`;
-  els.closedLeagueCount.textContent = `${state.closedLeagues.length}개`;
-  els.closedLeagueList.textContent = state.closedLeagues.length
-    ? state.closedLeagues.map((league) => league.name).slice(-3).join(", ")
-    : "아직 종료된 리그가 없습니다.";
-  els.resumeLeagueBtn.disabled = !isClosed();
-  els.closeLeagueBtn.disabled = isClosed();
+function daysUntil(dateString) {
+  const today = new Date();
+  const target = new Date(`${dateString}T00:00:00`);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target - today) / 86400000);
 }
 
-function renderParticipants() {
-  if (!state.participants.length) {
-    els.participants.innerHTML = `<p class="empty">아직 참여자가 없습니다. 닉네임을 등록하면 1,000만원이 지급됩니다.</p>`;
-    return;
+function scheduleTone(schedule) {
+  if (schedule.status === "completed") {
+    return { ...scheduleTones.later, label: "완료" };
   }
-
-  els.participants.innerHTML = state.participants
-    .map((participant) => {
-      const metrics = calculateParticipant(participant);
-      const className = metrics.returnRate >= 0 ? "gain" : "loss";
-      return `
-        <div class="person">
-          <div>
-            <strong>${participant.nickname}</strong>
-            <p class="muted">${formatWon(metrics.totalAsset)}</p>
-          </div>
-          <span class="${className}">${formatRate(metrics.returnRate)}</span>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderActiveSelect() {
-  if (!state.participants.length) {
-    els.activeUserSelect.innerHTML = `<option value="">참여자를 먼저 등록</option>`;
-    return;
-  }
-
-  els.activeUserSelect.innerHTML = state.participants
-    .map((participant) => {
-      const selected = participant.id === state.activeParticipantId ? "selected" : "";
-      return `<option value="${participant.id}" ${selected}>${participant.nickname}</option>`;
-    })
-    .join("");
-}
-
-function renderSelectedStock() {
-  const stock = getStock(state.selectedSymbol);
-  if (!stock) {
-    els.selectedStockPanel.innerHTML = `<p>종목을 선택해주세요.</p>`;
-    return;
-  }
-  const className = stock.change >= 0 ? "gain" : "loss";
-  els.selectedStockPanel.innerHTML = `
-    <div>
-      <span>선택 종목</span>
-      <strong>${stock.name}</strong>
-      <p>${stock.symbol} · ${stock.market}</p>
-    </div>
-    <div>
-      <strong>${formatWon(stock.price)}</strong>
-      <p class="${className}">${formatRate(stock.change)}</p>
-    </div>
-  `;
-}
-
-function renderStocks() {
-  const filteredStocks = getFilteredStocks();
-  els.stockSearchInput.value = state.searchQuery;
-
-  if (!filteredStocks.length) {
-    els.stockList.innerHTML = `<p class="empty">검색 결과가 없습니다. 종목명이나 코드를 다시 입력해보세요.</p>`;
-    renderSelectedStock();
-    return;
-  }
-
-  els.stockList.innerHTML = filteredStocks
-    .map((stock) => {
-      const selected = stock.symbol === state.selectedSymbol ? "selected" : "";
-      const className = stock.change >= 0 ? "gain" : "loss";
-      return `
-        <article class="stock-card ${selected}" data-symbol="${stock.symbol}">
-          <div>
-            <strong>${stock.name}</strong>
-            <p class="muted">${stock.symbol} · ${stock.market}</p>
-          </div>
-          <div>
-            <div class="price">${formatWon(stock.price)}</div>
-            <div class="${className}">${formatRate(stock.change)}</div>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-  renderSelectedStock();
-}
-
-function renderWallet() {
-  const active = getActiveParticipant();
-  if (!active) {
-    els.cashBalance.textContent = "참여 전";
-    els.totalAsset.textContent = "참여 전";
-    return;
-  }
-  const metrics = calculateParticipant(active);
-  els.cashBalance.textContent = formatWon(active.cash);
-  els.totalAsset.textContent = formatWon(metrics.totalAsset);
-}
-
-function renderHoldings() {
-  const active = getActiveParticipant();
-  if (!active) {
-    els.holdingsList.innerHTML = `<p class="empty">리그에서 사용할 닉네임을 먼저 등록해주세요.</p>`;
-    return;
-  }
-  if (!active.holdings.length) {
-    els.holdingsList.innerHTML = `<p class="empty">아직 보유 종목이 없습니다.</p>`;
-    return;
-  }
-
-  els.holdingsList.innerHTML = active.holdings
-    .map((holding) => {
-      const stock = getStock(holding.symbol);
-      const valuation = holding.quantity * stock.price;
-      const invested = holding.quantity * holding.buyPrice;
-      const profitRate = ((valuation - invested) / invested) * 100;
-      const className = profitRate >= 0 ? "gain" : "loss";
-      return `
-        <div class="holding-row">
-          <div>
-            <strong>${stock.name}</strong>
-            <p class="muted">${holding.quantity.toFixed(4)}주 · ${formatWon(valuation)}</p>
-          </div>
-          <div class="holding-actions">
-            <span class="${className}">${formatRate(profitRate)}</span>
-            <button class="ghost-button sell-button" data-symbol="${holding.symbol}">매도</button>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderRankings() {
-  const rankings = getRankings();
-  if (!rankings.length) {
-    els.rankingList.innerHTML = `<p class="empty">참여자가 등록되면 랭킹이 표시됩니다.</p>`;
-    return;
-  }
-
-  els.rankingList.innerHTML = rankings
-    .map((participant, index) => {
-      const className = participant.metrics.returnRate >= 0 ? "gain" : "loss";
-      return `
-        <article class="rank-card">
-          <div class="rank-badge">${index + 1}</div>
-          <div>
-            <strong>${participant.nickname}</strong>
-            <p class="muted">현금 ${formatWon(participant.cash)}</p>
-          </div>
-          <div>
-            <div class="price">${formatWon(participant.metrics.totalAsset)}</div>
-            <div class="${className}">${formatRate(participant.metrics.returnRate)}</div>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function renderHistory() {
-  const active = getActiveParticipant();
-  if (!active) {
-    els.historyList.innerHTML = `<p class="empty">리그 참여 후 거래 기록이 표시됩니다.</p>`;
-    return;
-  }
-  if (!active.history.length) {
-    els.historyList.innerHTML = `<p class="empty">거래 기록이 없습니다.</p>`;
-    return;
-  }
-
-  els.historyList.innerHTML = active.history
-    .slice()
-    .reverse()
-    .map((item) => `
-      <article class="history-card">
-        <p>${item.type} · ${item.stockName}</p>
-        <span>${formatWon(item.amount)} · ${item.quantity.toFixed(4)}주 · ${item.createdAt}</span>
-      </article>
-    `)
-    .join("");
+  const days = daysUntil(schedule.endDate);
+  if (days <= 3) return scheduleTones.urgent;
+  if (days <= 7) return scheduleTones.starting;
+  if (days <= 14) return scheduleTones.relaxed;
+  return scheduleTones.later;
 }
 
 function render() {
-  renderHeader();
-  renderLeagueManagement();
-  renderParticipants();
-  renderActiveSelect();
-  renderStocks();
-  renderWallet();
-  renderHoldings();
-  renderRankings();
-  renderHistory();
-  saveState();
+  saveUi();
+  renderControls();
+  renderView();
+  renderDashboard();
+  renderCalendar();
+  renderCategories();
+  renderUsers();
 }
 
-function addHistory(participant, type, stock, amount, quantity) {
-  participant.history.push({
-    type,
-    stockName: stock.name,
-    amount,
-    quantity,
-    createdAt: new Date().toLocaleString("ko-KR", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit"
-    })
+function renderControls() {
+  els.currentUserSelect.innerHTML = state.users
+    .map((user) => `<option value="${user.id}" ${user.id === state.currentUserId ? "selected" : ""}>${user.name}</option>`)
+    .join("");
+
+  const currentUserFilter = els.userFilter.value || "all";
+  els.userFilter.innerHTML = [
+    `<option value="all">전체 사용자</option>`,
+    ...state.users.map((user) => `<option value="${user.id}">${user.name}</option>`),
+  ].join("");
+  els.userFilter.value = state.users.some((user) => user.id === currentUserFilter) ? currentUserFilter : "all";
+
+  const currentProjectFilter = els.projectFilter.value || "all";
+  els.projectFilter.innerHTML = [
+    `<option value="all">전체 프로젝트</option>`,
+    ...state.projects.map((project) => `<option value="${project.id}">${project.name}</option>`),
+  ].join("");
+  els.projectFilter.value = state.projects.some((project) => project.id === currentProjectFilter) ? currentProjectFilter : "all";
+
+  const currentCategoryFilter = els.categoryFilter.value || "all";
+  els.categoryFilter.innerHTML = [
+    `<option value="all">전체 카테고리</option>`,
+    ...Object.entries(categories).map(([value, label]) => `<option value="${value}">${label}</option>`),
+  ].join("");
+  els.categoryFilter.value = categories[currentCategoryFilter] ? currentCategoryFilter : "all";
+}
+
+function renderView() {
+  els.navItems.forEach((item) => item.classList.toggle("active", item.dataset.view === state.activeView));
+  els.views.forEach((view) => view.classList.toggle("active-view", view.id === `${state.activeView}View`));
+  const [eyebrow, title] = viewCopy[state.activeView] || viewCopy.dashboard;
+  els.viewEyebrow.textContent = eyebrow;
+  els.viewTitle.textContent = title;
+  document.querySelector(".filters").style.display = ["dashboard", "calendar", "categories"].includes(state.activeView) ? "flex" : "none";
+}
+
+function renderDashboard() {
+  if (state.loading) {
+    els.summaryGrid.innerHTML = "";
+    els.projectGrid.innerHTML = `<article class="notice">Supabase 데이터를 불러오는 중입니다.</article>`;
+    return;
+  }
+  if (state.error) {
+    els.summaryGrid.innerHTML = "";
+    els.projectGrid.innerHTML = `<article class="notice">${state.error}</article>`;
+    return;
+  }
+
+  const schedules = filteredSchedules();
+  const pending = schedules.filter((schedule) => schedule.status === "pending");
+  const complex = state.projects.filter((project) => project.type === "complex");
+  const dueSoon = pending.filter((schedule) => {
+    const start = new Date(`${schedule.startDate}T00:00:00`);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return start - now <= 3 * 86400000;
   });
+
+  els.summaryGrid.innerHTML = [
+    ["전체 일정", schedules.length],
+    ["미완료", pending.length],
+    ["복합 프로젝트", complex.length],
+    ["3일 이내 시작", dueSoon.length],
+  ]
+    .map(([label, value]) => `<article class="summary-card"><span class="small-muted">${label}</span><strong>${value}</strong></article>`)
+    .join("");
+
+  els.projectGrid.innerHTML = state.projects
+    .map((project) => {
+      const projectSchedules = schedules.filter((schedule) => schedule.projectId === project.id);
+      const completed = projectSchedules.length > 0 && projectSchedules.every((schedule) => schedule.status === "completed");
+      const phaseNames = [...new Set(projectSchedules.map((schedule) => schedule.phase))];
+      const phaseGroups = phaseNames.map((phase) => {
+        const phaseSchedules = projectSchedules.filter((schedule) => schedule.phase === phase);
+        return `<section class="phase-group">
+          <div class="phase-title">${phase}<span>${phaseSchedules.length}개</span></div>
+          <div class="task-list">${phaseSchedules.map((schedule) => scheduleRow(schedule)).join("")}</div>
+        </section>`;
+      });
+      return `<article class="project-card ${completed || project.status === "completed" ? "completed" : ""}">
+        <div class="project-top" style="background:${project.color}"></div>
+        <div class="project-body">
+          <div class="project-meta">${project.startDate} - ${project.endDate} · ${dDay(project.startDate)}</div>
+          <div class="project-title-row">
+            <h3>${project.name}</h3>
+            <div class="project-card-actions">
+              <button class="ghost-button small-button" data-action="editProject" data-id="${project.id}" type="button">수정</button>
+              <button class="ghost-button danger-button small-button" data-action="deleteProject" data-id="${project.id}" type="button">삭제</button>
+            </div>
+          </div>
+          <div class="project-tags">
+            <span class="status-pill">${projectTypes[project.type]}</span>
+            <span class="status-pill">${categories[project.category] || "기타"}</span>
+            <span class="category-pill">${project.clientName}</span>
+          </div>
+          ${phaseGroups.join("") || `<p class="small-muted">등록된 일정이 없습니다.</p>`}
+        </div>
+      </article>`;
+    })
+    .join("");
 }
 
-function startNewLeague() {
-  if (state.participants.length || isClosed()) {
-    state.closedLeagues.push({
-      name: state.league.name,
-      status: state.league.status,
-      endedAt: new Date().toLocaleDateString("ko-KR"),
-      participantCount: state.participants.length
+function scheduleRow(schedule) {
+  const assignee = byId(state.users, schedule.assigneeUserId);
+  const tone = scheduleTone(schedule);
+  return `<div class="task-row ${schedule.status === "completed" ? "completed" : ""}" style="border-left: 6px solid ${tone.color}">
+    <input type="checkbox" data-action="toggleSchedule" data-id="${schedule.id}" ${schedule.status === "completed" ? "checked" : ""} />
+    <div>
+      <strong>${schedule.title}</strong>
+      <div class="task-meta">${schedule.startDate} - ${schedule.endDate} · ${schedule.clientName} · ${assignee?.name || "미지정"}</div>
+      <div class="task-content">${schedule.content || ""}</div>
+    </div>
+    <span class="schedule-tone-pill" style="background:${tone.color}; color:${tone.text || "#ffffff"}">${tone.label}</span>
+  </div>`;
+}
+
+function renderCalendar() {
+  const base = new Date(state.calendarDate);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  els.calendarTitle.textContent = `${year}년 ${month + 1}월`;
+
+  const first = new Date(year, month, 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+
+  const days = [];
+  const mobileDays = [];
+  for (let index = 0; index < 42; index += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    const key = day.toISOString().slice(0, 10);
+    const events = filteredSchedules().filter((schedule) => key >= schedule.startDate && key <= schedule.endDate);
+    const eventHtml = events.map((schedule) => calendarEventHtml(schedule)).join("");
+    days.push(`<div class="calendar-day ${day.getMonth() === month ? "" : "muted-day"}">
+      <span class="calendar-date">${day.getDate()}</span>
+      ${eventHtml}
+    </div>`);
+    if (day.getMonth() === month && events.length > 0) {
+      mobileDays.push(`<section class="mobile-calendar-day">
+        <div class="mobile-date">
+          <strong>${month + 1}월 ${day.getDate()}일</strong>
+          <span>${["일", "월", "화", "수", "목", "금", "토"][day.getDay()]}</span>
+        </div>
+        <div class="mobile-events">${eventHtml}</div>
+      </section>`);
+    }
+  }
+  els.calendarGrid.innerHTML = days.join("");
+  els.mobileCalendarList.innerHTML = mobileDays.join("") || `<p class="small-muted">이번 달 표시할 일정이 없습니다.</p>`;
+}
+
+function calendarEventHtml(schedule) {
+  const project = byId(state.projects, schedule.projectId);
+  const tone = scheduleTone(schedule);
+  return `<span class="calendar-event" style="background:${tone.color}; color:${tone.text || "#ffffff"}">
+    <span class="project-color-chip" style="background:${project?.color || "#ffffff"}"></span>
+    <span class="calendar-event-text">${schedule.title}</span>
+    <small>${project?.name || ""} · ${schedule.phase}</small>
+  </span>`;
+}
+
+function renderCategories() {
+  const tabs = [["all", "전체"], ...Object.entries(categories)];
+  els.categoryTabs.innerHTML = tabs
+    .map(([value, label]) => `<button class="tab-button ${state.activeCategory === value ? "active" : ""}" data-category-tab="${value}">${label}</button>`)
+    .join("");
+
+  const rows = filteredSchedules()
+    .filter((schedule) => state.activeCategory === "all" || schedule.category === state.activeCategory)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))
+    .map((schedule) => {
+      const project = byId(state.projects, schedule.projectId);
+      const assignee = byId(state.users, schedule.assigneeUserId);
+      return `<tr>
+        <td>${schedule.startDate} - ${schedule.endDate}<br><span class="small-muted">${dDay(schedule.startDate)}</span></td>
+        <td>${schedule.clientName}</td>
+        <td><strong>${schedule.title}</strong><br><span class="small-muted">${schedule.content}</span></td>
+        <td>${project?.name || "미지정"}</td>
+        <td>${schedule.phase}</td>
+        <td>${assignee?.name || "미지정"}</td>
+        <td><span class="status-pill">${schedule.status === "completed" ? "완료" : "미완료"}</span></td>
+      </tr>`;
+    })
+    .join("");
+  els.categoryTable.innerHTML = rows || `<tr><td colspan="7">표시할 내역이 없습니다.</td></tr>`;
+}
+
+function renderUsers() {
+  const activeUser = currentUser();
+  els.userForm.style.display = "flex";
+  els.userList.innerHTML = state.users
+    .map((user) => {
+      const actionButton =
+        user.id === activeUser?.id
+          ? `<button class="ghost-button danger-button" data-action="withdrawUser" data-id="${user.id}">팀원 탈퇴</button>`
+          : `<button class="ghost-button danger-button" data-action="removeUser" data-id="${user.id}">팀원 제거</button>`;
+      return `<article class="person-card">
+      <h3><span class="dot" style="background:${user.profileColor}"></span> ${user.name}</h3>
+      <p class="small-muted">${user.email}</p>
+      <div class="card-actions">${actionButton}</div>
+    </article>`;
+    })
+    .join("");
+}
+
+function addDetailRow(values = {}) {
+  const row = document.createElement("div");
+  row.className = "detail-row";
+  const selectedCategory = values.category || els.projectForm.category?.value || "branding";
+  row.innerHTML = `
+    <label>세부 항목<input name="detailPhase" value="${values.phase || ""}" placeholder="예: 로고" required /></label>
+    <label>일정명<input name="detailTitle" value="${values.title || ""}" placeholder="예: 로고 1차 시안" required /></label>
+    <label>시작일<input name="detailStartDate" type="date" value="${values.startDate || offsetDate(1)}" required /></label>
+    <label>종료일<input name="detailEndDate" type="date" value="${values.endDate || offsetDate(3)}" required /></label>
+    <label>카테고리<select name="detailCategory">${Object.entries(categories).map(([value, label]) => `<option value="${value}" ${selectedCategory === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+    <label>담당자<select name="detailAssignee">${state.users.map((user) => `<option value="${user.id}" ${values.assigneeUserId === user.id ? "selected" : ""}>${user.name}</option>`).join("")}</select></label>
+    <label class="detail-content">내용<input name="detailContent" value="${values.content || ""}" placeholder="세부 일정 내용" /></label>
+    <button class="ghost-button remove-detail" type="button" data-action="removeDetailRow">삭제</button>
+  `;
+  els.detailRows.appendChild(row);
+}
+
+function resetProjectModalForCreate() {
+  state.editingProjectId = "";
+  els.projectForm.reset();
+  els.projectModalTitle.textContent = "프로젝트 등록";
+  els.projectSubmitButton.textContent = "프로젝트 등록";
+  els.projectForm.type.value = "single";
+  els.projectForm.color.value = "#176d6b";
+  els.projectForm.category.value = "branding";
+  els.projectForm.startDate.value = offsetDate(1);
+  els.projectForm.endDate.value = offsetDate(14);
+  els.detailRows.innerHTML = "";
+  addDetailRow({ phase: "로고", title: "로고 1차 시안", startDate: offsetDate(1), endDate: offsetDate(3), category: "branding" });
+  addDetailRow({ phase: "매뉴얼 제작", title: "브랜드 매뉴얼 제작", startDate: offsetDate(4), endDate: offsetDate(8), category: "branding" });
+  addDetailRow({ phase: "패키지 제작", title: "패키지 시안 제작", startDate: offsetDate(9), endDate: offsetDate(14), category: "branding" });
+  els.detailScheduleBox.style.display = "none";
+}
+
+function openProjectEditModal(projectId) {
+  const project = byId(state.projects, projectId);
+  if (!project) return;
+  state.editingProjectId = projectId;
+  els.projectForm.reset();
+  els.projectModalTitle.textContent = "프로젝트 수정";
+  els.projectSubmitButton.textContent = "수정 후 등록";
+  els.projectForm.name.value = project.name;
+  els.projectForm.clientName.value = project.clientName;
+  els.projectForm.color.value = project.color;
+  els.projectForm.type.value = project.type;
+  els.projectForm.category.value = project.category;
+  els.projectForm.startDate.value = project.startDate;
+  els.projectForm.endDate.value = project.endDate;
+  els.projectForm.status.value = project.status;
+  els.detailRows.innerHTML = "";
+  state.schedules
+    .filter((schedule) => schedule.projectId === projectId)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))
+    .forEach((schedule) => {
+      addDetailRow({
+        phase: schedule.phase,
+        title: schedule.title,
+        startDate: schedule.startDate,
+        endDate: schedule.endDate,
+        category: schedule.category,
+        assigneeUserId: schedule.assigneeUserId,
+        content: schedule.content,
+      });
+    });
+  if (project.type === "complex" && els.detailRows.children.length === 0) {
+    addDetailRow({ category: project.category });
+  }
+  els.detailScheduleBox.style.display = project.type === "complex" ? "block" : "none";
+  els.projectModal.showModal();
+}
+
+function collectDetailRows(projectId, clientName) {
+  return [...els.detailRows.querySelectorAll(".detail-row")]
+    .map((row) => ({
+      projectId,
+      clientName,
+      phase: row.querySelector("[name='detailPhase']").value.trim(),
+      title: row.querySelector("[name='detailTitle']").value.trim(),
+      startDate: row.querySelector("[name='detailStartDate']").value,
+      endDate: row.querySelector("[name='detailEndDate']").value,
+      category: row.querySelector("[name='detailCategory']").value,
+      assigneeUserId: row.querySelector("[name='detailAssignee']").value,
+      content: row.querySelector("[name='detailContent']").value.trim(),
+      status: "pending",
+    }))
+    .filter((schedule) => schedule.phase && schedule.title && schedule.startDate && schedule.endDate);
+}
+
+async function addProjectFromForm(form) {
+  const formData = new FormData(form);
+  const type = formData.get("type");
+  const project = {
+    name: formData.get("name"),
+    clientName: formData.get("clientName"),
+    color: formData.get("color"),
+    type,
+    category: formData.get("category"),
+    startDate: formData.get("startDate"),
+    endDate: formData.get("endDate"),
+    status: formData.get("status"),
+  };
+
+  const createdProjects = await supabaseRequest("projects", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(projectToDb(project)),
+  });
+  const projectId = createdProjects[0].id;
+
+  const schedules =
+    type === "single"
+      ? [
+          {
+            projectId,
+            phase: "단발 프로젝트",
+            title: project.name,
+            clientName: project.clientName,
+            content: `${project.name} 단발 프로젝트`,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            category: project.category,
+            status: project.status,
+            assigneeUserId: state.currentUserId || state.users[0]?.id || null,
+          },
+        ]
+      : collectDetailRows(projectId, project.clientName);
+
+  if (schedules.length > 0) {
+    await supabaseRequest("schedules", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(schedules.map(scheduleToDb)),
     });
   }
+  await loadData();
+}
 
-  state.league = {
-    name: els.leagueInput.value.trim() || "새싹 투자왕 리그",
-    inviteCode: createInviteCode(),
-    initialCash: INITIAL_CASH,
-    endDate: els.endDateInput.value || createEndDate(),
-    status: "ACTIVE"
+async function updateProjectFromForm(form, projectId) {
+  const formData = new FormData(form);
+  const type = formData.get("type");
+  const project = {
+    name: formData.get("name"),
+    clientName: formData.get("clientName"),
+    color: formData.get("color"),
+    type,
+    category: formData.get("category"),
+    startDate: formData.get("startDate"),
+    endDate: formData.get("endDate"),
+    status: formData.get("status"),
   };
-  state.participants = [];
-  state.activeParticipantId = "";
-  state.searchQuery = "";
-  showToast("새 리그가 시작되었습니다. 참여자를 등록해주세요.");
-  render();
-}
 
-async function buySelectedStock() {
-  if (isClosed()) {
-    showToast("종료된 리그에서는 거래할 수 없습니다.");
-    return;
-  }
-
-  const active = getActiveParticipant();
-  if (!active) {
-    showToast("먼저 리그 참여 닉네임을 등록해주세요.");
-    return;
-  }
-
-  await refreshStocks(state.selectedSymbol);
-  const stock = getStock(state.selectedSymbol);
-  const amount = Number(els.buyAmountInput.value.replaceAll(",", ""));
-
-  if (!amount || amount < 10000) {
-    showToast("매수 금액은 1만원 이상 입력해주세요.");
-    return;
-  }
-
-  if (amount > active.cash) {
-    showToast("보유 현금보다 많이 살 수 없습니다.");
-    return;
-  }
-
-  const quantity = amount / stock.price;
-  const holding = active.holdings.find((item) => item.symbol === stock.symbol);
-
-  if (holding) {
-    const currentInvested = holding.quantity * holding.buyPrice;
-    const nextQuantity = holding.quantity + quantity;
-    holding.buyPrice = (currentInvested + amount) / nextQuantity;
-    holding.quantity = nextQuantity;
-  } else {
-    active.holdings.push({ symbol: stock.symbol, quantity, buyPrice: stock.price });
-  }
-
-  active.cash -= amount;
-  addHistory(active, "매수", stock, amount, quantity);
-  showToast(`${stock.name} ${formatWon(amount)} 매수 완료`);
-  render();
-}
-
-function sellHolding(symbol) {
-  if (isClosed()) {
-    showToast("종료된 리그에서는 거래할 수 없습니다.");
-    return;
-  }
-
-  const active = getActiveParticipant();
-  const holdingIndex = active?.holdings.findIndex((item) => item.symbol === symbol) ?? -1;
-  if (holdingIndex === -1) return;
-
-  const holding = active.holdings[holdingIndex];
-  const stock = getStock(symbol);
-  const amount = holding.quantity * stock.price;
-  active.cash += amount;
-  active.holdings.splice(holdingIndex, 1);
-  addHistory(active, "매도", stock, amount, holding.quantity);
-  showToast(`${stock.name} 전량 매도 완료`);
-  render();
-}
-
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
-    document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
-    tab.classList.add("active");
-    document.querySelector(`#${tab.dataset.view}`).classList.add("active");
+  await supabaseRequest(`projects?id=eq.${projectId}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify(projectToDb(project)),
   });
-});
 
-els.leagueForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  state.league.name = els.leagueInput.value.trim() || "새싹 투자왕 리그";
-  state.league.endDate = els.endDateInput.value || state.league.endDate;
-  if (isClosed()) {
-    state.league.status = "ACTIVE";
+  await supabaseRequest(`schedules?project_id=eq.${projectId}`, { method: "DELETE" });
+
+  const schedules =
+    type === "single"
+      ? [
+          {
+            projectId,
+            phase: "단발 프로젝트",
+            title: project.name,
+            clientName: project.clientName,
+            content: `${project.name} 단발 프로젝트`,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            category: project.category,
+            status: project.status,
+            assigneeUserId: state.currentUserId || state.users[0]?.id || null,
+          },
+        ]
+      : collectDetailRows(projectId, project.clientName);
+
+  if (schedules.length > 0) {
+    await supabaseRequest("schedules", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(schedules.map(scheduleToDb)),
+    });
   }
-  showToast("리그 설정을 저장했습니다.");
-  render();
-});
+  state.editingProjectId = "";
+  await loadData();
+}
 
-els.newLeagueBtn.addEventListener("click", () => {
-  startNewLeague();
-});
-
-els.resumeLeagueBtn.addEventListener("click", () => {
-  state.league.status = "ACTIVE";
-  showToast("리그를 진행 중으로 되돌렸습니다.");
-  render();
-});
-
-els.joinForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (isClosed()) {
-    showToast("종료된 리그에는 참여할 수 없습니다. 새 리그를 시작해주세요.");
-    return;
+async function deleteProject(projectId) {
+  const project = byId(state.projects, projectId);
+  if (!project) return;
+  if (!confirm(`"${project.name}" 프로젝트를 정말 삭제할까요?`)) return;
+  await supabaseRequest(`projects?id=eq.${projectId}`, { method: "DELETE" });
+  if (els.projectFilter.value === projectId) {
+    els.projectFilter.value = "all";
   }
+  await loadData();
+}
 
-  const nickname = els.nicknameInput.value.trim();
-  if (!nickname) {
-    showToast("닉네임을 입력해주세요.");
-    return;
-  }
+function fallbackUserId(userId) {
+  return state.users.find((user) => user.id !== userId)?.id || null;
+}
 
-  const exists = state.participants.some((participant) => participant.nickname === nickname);
-  if (exists) {
-    showToast("이미 참여한 닉네임입니다.");
-    return;
-  }
-
-  const id = `p${Date.now()}`;
-  state.participants.push({ id, nickname, cash: INITIAL_CASH, holdings: [], history: [] });
-  state.activeParticipantId = id;
-  els.nicknameInput.value = "";
-  showToast(`${nickname}님에게 1,000만원을 지급했습니다.`);
-  render();
-});
-
-els.activeUserSelect.addEventListener("change", (event) => {
-  state.activeParticipantId = event.target.value;
-  render();
-});
-
-els.stockSearchInput.addEventListener("input", async (event) => {
-  state.searchQuery = event.target.value;
-  await refreshStocks(state.searchQuery);
-  const filteredStocks = getFilteredStocks();
-  if (filteredStocks.length === 1) {
-    state.selectedSymbol = filteredStocks[0].symbol;
-  }
-  renderStocks();
-  saveState();
-});
-
-els.stockSearchInput.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  const filteredStocks = getFilteredStocks();
-  if (!filteredStocks.length) {
-    showToast("검색된 종목이 없습니다.");
-    return;
-  }
-  state.selectedSymbol = filteredStocks[0].symbol;
-  renderStocks();
-  showToast(`${filteredStocks[0].name} 선택 완료`);
-});
-
-els.stockList.addEventListener("click", (event) => {
-  const card = event.target.closest(".stock-card");
-  if (!card) return;
-  state.selectedSymbol = card.dataset.symbol;
-  renderStocks();
-});
-
-els.buyForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  await buySelectedStock();
-});
-
-els.holdingsList.addEventListener("click", (event) => {
-  const button = event.target.closest(".sell-button");
-  if (!button) return;
-  sellHolding(button.dataset.symbol);
-});
-
-els.closeLeagueBtn.addEventListener("click", () => {
-  state.league.status = "CLOSED";
-  state.closedLeagues.push({
-    name: state.league.name,
-    status: "CLOSED",
-    endedAt: new Date().toLocaleDateString("ko-KR"),
-    participantCount: state.participants.length
+async function removeUser(userId) {
+  if (userId === state.currentUserId) return;
+  const target = byId(state.users, userId);
+  if (!target) return;
+  const fallback = fallbackUserId(userId);
+  await supabaseRequest(`schedules?assignee_user_id=eq.${userId}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ assignee_user_id: fallback }),
   });
-  showToast("리그가 종료되어 최종 순위가 고정되었습니다.");
+  await supabaseRequest(`app_users?id=eq.${userId}`, { method: "DELETE" });
+  await loadData();
+}
+
+async function withdrawUser(userId) {
+  if (userId !== state.currentUserId) return;
+  if (state.users.length <= 1) return;
+  const fallback = fallbackUserId(userId);
+  await supabaseRequest(`schedules?assignee_user_id=eq.${userId}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ assignee_user_id: fallback }),
+  });
+  await supabaseRequest(`app_users?id=eq.${userId}`, { method: "DELETE" });
+  state.currentUserId = fallback || "";
+  await loadData();
+}
+
+document.addEventListener("click", async (event) => {
+  const nav = event.target.closest("[data-view]");
+  if (nav) {
+    state.activeView = nav.dataset.view;
+    saveUi();
+    render();
+  }
+
+  const action = event.target.dataset.action;
+  const id = event.target.dataset.id;
+  try {
+    if (action === "toggleSchedule") {
+      const schedule = byId(state.schedules, id);
+      const status = event.target.checked ? "completed" : "pending";
+      schedule.status = status;
+      render();
+      await supabaseRequest(`schedules?id=eq.${id}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ status }),
+      });
+      await loadData();
+    }
+    if (action === "removeDetailRow") {
+      event.target.closest(".detail-row")?.remove();
+    }
+    if (action === "deleteProject") {
+      await deleteProject(id);
+    }
+    if (action === "editProject") {
+      openProjectEditModal(id);
+    }
+    if (action === "removeUser") {
+      await removeUser(id);
+    }
+    if (action === "withdrawUser") {
+      await withdrawUser(id);
+    }
+  } catch (error) {
+    alert("Supabase 저장 중 오류가 발생했습니다.");
+    console.error(error);
+    await loadData();
+  }
+
+  const tab = event.target.closest("[data-category-tab]");
+  if (tab) {
+    state.activeCategory = tab.dataset.categoryTab;
+    saveUi();
+    render();
+  }
+});
+
+els.openProjectModal.addEventListener("click", () => {
+  resetProjectModalForCreate();
+  els.projectModal.showModal();
+});
+
+els.closeProjectModal.addEventListener("click", () => {
+  state.editingProjectId = "";
+  els.projectModal.close();
+});
+
+els.projectForm.addEventListener("change", (event) => {
+  if (event.target.name === "type") {
+    els.detailScheduleBox.style.display = event.target.value === "complex" ? "block" : "none";
+  }
+  if (event.target.name === "category") {
+    els.detailRows.querySelectorAll("[name='detailCategory']").forEach((select) => {
+      select.value = event.target.value;
+    });
+  }
+});
+
+els.addDetailRow.addEventListener("click", () => addDetailRow());
+
+els.projectForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    if (state.editingProjectId) {
+      await updateProjectFromForm(els.projectForm, state.editingProjectId);
+    } else {
+      await addProjectFromForm(els.projectForm);
+    }
+    els.projectModal.close();
+  } catch (error) {
+    alert("프로젝트 저장 중 오류가 발생했습니다.");
+    console.error(error);
+  }
+});
+
+els.userForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(els.userForm);
+  try {
+    await supabaseRequest("app_users", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(
+        userToDb({
+          name: formData.get("name"),
+          email: formData.get("email"),
+          profileColor: profileColors[state.users.length % profileColors.length],
+        })
+      ),
+    });
+    els.userForm.reset();
+    await loadData();
+  } catch (error) {
+    alert("팀원 저장 중 오류가 발생했습니다.");
+    console.error(error);
+  }
+});
+
+els.currentUserSelect.addEventListener("change", (event) => {
+  state.currentUserId = event.target.value;
+  saveUi();
   render();
 });
 
-refreshStocks().finally(render);
+els.projectFilter.addEventListener("change", render);
+els.userFilter.addEventListener("change", render);
+els.categoryFilter.addEventListener("change", render);
+els.statusFilter.addEventListener("change", render);
+
+els.prevMonth.addEventListener("click", () => {
+  const date = new Date(state.calendarDate);
+  date.setMonth(date.getMonth() - 1);
+  state.calendarDate = date.toISOString();
+  saveUi();
+  render();
+});
+
+els.nextMonth.addEventListener("click", () => {
+  const date = new Date(state.calendarDate);
+  date.setMonth(date.getMonth() + 1);
+  state.calendarDate = date.toISOString();
+  saveUi();
+  render();
+});
+
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {
+      // Local file previews do not support service workers. GitHub Pages will.
+    });
+  });
+}
+
+loadData();

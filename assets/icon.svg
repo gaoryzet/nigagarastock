@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="이원 TODO 아이콘">
+  <rect width="512" height="512" rx="96" fill="#176d6b"/>
+  <rect x="96" y="104" width="320" height="304" rx="42" fill="#f6f7f5"/>
+  <rect x="128" y="150" width="256" height="34" rx="17" fill="#d9413a"/>
+  <rect x="128" y="214" width="196" height="28" rx="14" fill="#d7a21f"/>
+  <rect x="128" y="270" width="224" height="28" rx="14" fill="#3e8f55"/>
+  <rect x="128" y="326" width="156" height="28" rx="14" fill="#8a8f95"/>
+  <path d="M218 369 155 306l35-35 28 28 111-111 35 35-146 146Z" fill="#176d6b"/>
+  <circle cx="373" cy="139" r="42" fill="#202124"/>
+  <text x="373" y="154" text-anchor="middle" font-family="Arial, sans-serif" font-size="38" font-weight="700" fill="#ffffff">T</text>
+</svg>
