@@ -1,68 +1,60 @@
-# 이원 TODO
+# 니가가라투자왕
 
-프로젝트와 일정을 함께 관리하는 공유형 TODO 웹앱입니다.
+친구들과 1,000만원의 가상 투자금으로 경쟁하는 모바일형 모의투자 리그 앱입니다.
 
-## 현재 구조
+## 주요 기능
 
-- 화면 배포: GitHub Pages
-- 공동 데이터 저장: Supabase
-- 앱 설치: PWA 방식
-- 지원 환경: Windows, Mac, Chrome, Edge, Safari
+- 링크 티켓으로 리그 참여
+- 한 리그에서 한 아이디는 1회만 1,000만원 지급
+- 새 리그 시작 시 새 링크 티켓 발급
+- KOSPI/KOSDAQ 종목 검색
+- 현재가와 차트 표시
+- 금액 기준 일부 매수
+- 보유 종목 선택 후 일부 매도 또는 전량 매도
+- 체결 수량, 체결가, 체결금액 표시
+- 현금, 총자산, 수익률, 순위 계산
+- 리그 종료와 리그 관리 화면
 
-## 중요한 안내
+## GitHub Pages 배포
 
-이 버전은 로그인 없이 같은 데이터를 공유하는 1차 협업 버전입니다.
-앱 주소를 아는 사람은 데이터를 볼 수 있고 수정할 수 있습니다.
-나중에 보안을 강화하려면 Supabase Auth 로그인과 사용자별 권한을 추가해야 합니다.
+1. 이 폴더의 파일을 GitHub 저장소에 업로드합니다.
+2. GitHub 저장소에서 `Settings` > `Pages`로 이동합니다.
+3. Source를 `Deploy from a branch`로 선택합니다.
+4. Branch는 `main`, Folder는 `/(root)`로 선택합니다.
+5. `Save`를 누릅니다.
+6. 생성된 GitHub Pages 주소로 접속해 테스트합니다.
 
-## Supabase 설정
+## Supabase Edge Function
 
-1. Supabase 프로젝트를 엽니다.
-2. 왼쪽 메뉴에서 `SQL Editor`를 엽니다.
-3. 이 저장소의 `supabase-schema.sql` 내용을 전체 복사합니다.
-4. SQL Editor에 붙여넣고 실행합니다.
-5. 앱을 새로고침합니다.
+현재가와 차트는 Supabase Edge Function을 통해 불러옵니다.
 
-처음 테이블이 비어 있으면 앱이 기본 사용자와 예시 프로젝트를 자동으로 생성합니다.
+Supabase Dashboard에서 `quick-handler` 함수의 Code 탭에 아래 파일 내용을 붙여넣고 Deploy 하세요.
 
-## GitHub Pages에 올리는 방법
+```text
+supabase/functions/market-data/index.ts
+```
 
-1. GitHub에서 새 repository를 만듭니다.
-2. 이 폴더의 파일을 모두 업로드합니다.
-3. repository의 `Settings`로 이동합니다.
-4. `Pages` 메뉴를 엽니다.
-5. `Deploy from a branch`를 선택합니다.
-6. branch는 `main`, folder는 `/root`를 선택합니다.
-7. 저장하면 잠시 뒤 웹 주소가 생깁니다.
+Function Settings에서 `Verify JWT with legacy secret`은 꺼두는 것을 권장합니다.
 
-## 앱처럼 설치하는 방법
+## 배포 전 체크
 
-### Windows
+`config.js`가 아래처럼 되어 있으면 됩니다.
 
-1. GitHub Pages 주소를 Edge 또는 Chrome에서 엽니다.
-2. 주소창 오른쪽의 설치 아이콘을 누릅니다.
-3. `이원 TODO 설치`를 선택합니다.
-4. 시작 메뉴에 앱처럼 추가됩니다.
+```js
+window.NGIK_CONFIG = {
+  MARKET_DATA_FUNCTION_URL: "https://abwitqdxagdbcogsscsk.supabase.co/functions/v1/quick-handler",
+  SUPABASE_ANON_KEY: ""
+};
+```
 
-### Mac
+## 올리지 말아야 할 파일
 
-1. GitHub Pages 주소를 Safari 또는 Chrome에서 엽니다.
-2. Safari에서는 공유 버튼에서 `Dock에 추가`를 선택합니다.
-3. Chrome에서는 주소창 오른쪽 설치 아이콘 또는 메뉴의 설치 항목을 선택합니다.
-4. Dock 또는 Launchpad에서 앱처럼 실행할 수 있습니다.
+아래 파일은 GitHub에 올리지 마세요.
 
-## 포함된 앱 아이콘
-
-- `assets/icon.svg`
-- `assets/icon-192.png`
-- `assets/icon-512.png`
-
-## 파일 구성
-
-- `index.html`
-- `styles.css`
-- `app.js`
-- `manifest.json`
-- `sw.js`
-- `supabase-schema.sql`
-- `assets/`
+```text
+.env
+service_role 키가 들어간 파일
+실제 증권 API Secret이 들어간 파일
+smoke-*.js
+node_modules/
+```

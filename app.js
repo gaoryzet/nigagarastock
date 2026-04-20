@@ -1,976 +1,1073 @@
-const SUPABASE_URL = "https://jagbzzjmtxugdbuhjbij.supabase.co";
-const SUPABASE_KEY = "sb_publishable_SsA8yT__1nGHdEUHshfLVw_5RCq_5cU";
-const UI_STORAGE_KEY = "ewonTodo.ui.v1";
+const INITIAL_CASH = 10000000;
+const STORAGE_KEY = "nigaGaraInvestmentKingStateV5";
 
-const categories = {
-  illustration: "일러스트",
-  branding: "브랜딩",
-  order: "발주",
-  etc: "기타",
+const DEFAULT_STOCKS = [
+  { symbol: "005930", ySymbol: "005930.KS", name: "삼성전자", market: "KOSPI", price: 80200, change: 1.4 },
+  { symbol: "035420", ySymbol: "035420.KS", name: "NAVER", market: "KOSPI", price: 186500, change: -0.8 },
+  { symbol: "035720", ySymbol: "035720.KS", name: "카카오", market: "KOSPI", price: 49300, change: 2.1 },
+  { symbol: "000660", ySymbol: "000660.KS", name: "SK하이닉스", market: "KOSPI", price: 214000, change: 3.2 },
+  { symbol: "005380", ySymbol: "005380.KS", name: "현대차", market: "KOSPI", price: 258000, change: -1.1 },
+  { symbol: "068270", ySymbol: "068270.KS", name: "셀트리온", market: "KOSPI", price: 183400, change: 0.6 },
+  { symbol: "042660", ySymbol: "042660.KS", name: "한화오션", market: "KOSPI", price: 38250, change: 1.8 },
+  { symbol: "373220", ySymbol: "373220.KS", name: "LG에너지솔루션", market: "KOSPI", price: 389000, change: 0.9 },
+  { symbol: "207940", ySymbol: "207940.KS", name: "삼성바이오로직스", market: "KOSPI", price: 832000, change: -0.3 },
+  { symbol: "247540", ySymbol: "247540.KQ", name: "에코프로비엠", market: "KOSDAQ", price: 0, change: 0 },
+  { symbol: "086520", ySymbol: "086520.KQ", name: "에코프로", market: "KOSDAQ", price: 0, change: 0 },
+  { symbol: "AAPL", ySymbol: "AAPL", name: "Apple", market: "NASDAQ", price: 245000, change: 1.1 },
+  { symbol: "TSLA", ySymbol: "TSLA", name: "Tesla", market: "NASDAQ", price: 286000, change: -1.7 }
+];
+
+let stocks = [...DEFAULT_STOCKS];
+let krxMasterStocks = [];
+let selectedChart = [];
+let chartSource = "sample";
+let selectedHoldingSymbol = "";
+
+const CHART_RANGES = {
+  "1d": { label: "1일", range: "1d", interval: "5m" },
+  "1w": { label: "1주", range: "5d", interval: "30m" },
+  "1mo": { label: "1개월", range: "1mo", interval: "1d" },
+  "3mo": { label: "3개월", range: "3mo", interval: "1d" },
+  "1y": { label: "1년", range: "1y", interval: "1d" }
 };
 
-const scheduleTones = {
-  urgent: { label: "가장 급함", color: "#d9413a" },
-  starting: { label: "시작단계", color: "#d7a21f" },
-  relaxed: { label: "여유있음", color: "#3e8f55" },
-  later: { label: "여유 일정", color: "#d8dadd", text: "#3f4347" },
-};
-
-const projectTypes = {
-  complex: "복합 프로젝트",
-  single: "단발 프로젝트",
-};
-
-const profileColors = ["#176d6b", "#d9413a", "#3e8f55", "#6f5e96"];
-
-const savedUi = readSavedUi();
-const state = {
-  currentUserId: savedUi.currentUserId || "",
-  activeView: savedUi.activeView || "dashboard",
-  activeCategory: savedUi.activeCategory || "all",
-  calendarDate: savedUi.calendarDate || new Date().toISOString(),
-  editingProjectId: "",
-  users: [],
-  projects: [],
-  schedules: [],
-  loading: true,
-  error: "",
-};
-
-const els = {
-  navItems: document.querySelectorAll(".nav-item"),
-  views: document.querySelectorAll(".view"),
-  viewTitle: document.getElementById("viewTitle"),
-  viewEyebrow: document.getElementById("viewEyebrow"),
-  currentUserSelect: document.getElementById("currentUserSelect"),
-  projectFilter: document.getElementById("projectFilter"),
-  userFilter: document.getElementById("userFilter"),
-  categoryFilter: document.getElementById("categoryFilter"),
-  statusFilter: document.getElementById("statusFilter"),
-  summaryGrid: document.getElementById("summaryGrid"),
-  projectGrid: document.getElementById("projectGrid"),
-  calendarGrid: document.getElementById("calendarGrid"),
-  mobileCalendarList: document.getElementById("mobileCalendarList"),
-  calendarTitle: document.getElementById("calendarTitle"),
-  prevMonth: document.getElementById("prevMonth"),
-  nextMonth: document.getElementById("nextMonth"),
-  categoryTabs: document.getElementById("categoryTabs"),
-  categoryTable: document.getElementById("categoryTable"),
-  userList: document.getElementById("userList"),
-  projectModal: document.getElementById("projectModal"),
-  projectForm: document.getElementById("projectForm"),
-  projectModalTitle: document.getElementById("projectModalTitle"),
-  projectSubmitButton: document.getElementById("projectSubmitButton"),
-  openProjectModal: document.getElementById("openProjectModal"),
-  closeProjectModal: document.getElementById("closeProjectModal"),
-  detailScheduleBox: document.getElementById("detailScheduleBox"),
-  detailRows: document.getElementById("detailRows"),
-  addDetailRow: document.getElementById("addDetailRow"),
-  userForm: document.getElementById("userForm"),
-};
-
-const viewCopy = {
-  dashboard: ["Project overview", "프로젝트별 일정"],
-  calendar: ["Calendar", "캘린더"],
-  categories: ["Category list", "카테고리 리스트"],
-  users: ["Team", "사용자 관리"],
-};
-
-function readSavedUi() {
-  try {
-    return JSON.parse(localStorage.getItem(UI_STORAGE_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveUi() {
-  localStorage.setItem(
-    UI_STORAGE_KEY,
-    JSON.stringify({
-      currentUserId: state.currentUserId,
-      activeView: state.activeView,
-      activeCategory: state.activeCategory,
-      calendarDate: state.calendarDate,
-    })
-  );
-}
-
-function offsetDate(days) {
+function createEndDate(days = 14) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
-function byId(list, id) {
-  return list.find((item) => item.id === id);
+function createInviteCode() {
+  return `TICKET-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function currentUser() {
-  return byId(state.users, state.currentUserId) || state.users[0];
-}
-
-function dbUserToApp(row) {
+function createInitialState() {
+  const ticket = createInviteCode();
   return {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    profileColor: row.profile_color,
-  };
-}
-
-function dbProjectToApp(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    clientName: row.client_name,
-    color: row.color,
-    type: row.type,
-    category: row.category,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    status: row.status,
-  };
-}
-
-function dbScheduleToApp(row) {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    phase: row.phase,
-    title: row.title,
-    clientName: row.client_name,
-    content: row.content || "",
-    startDate: row.start_date,
-    endDate: row.end_date,
-    category: row.category,
-    status: row.status,
-    assigneeUserId: row.assignee_user_id,
-  };
-}
-
-function userToDb(user) {
-  return {
-    name: user.name,
-    email: user.email,
-    profile_color: user.profileColor,
-  };
-}
-
-function projectToDb(project) {
-  return {
-    name: project.name,
-    client_name: project.clientName,
-    color: project.color,
-    type: project.type,
-    category: project.category,
-    start_date: project.startDate,
-    end_date: project.endDate,
-    status: project.status,
-  };
-}
-
-function scheduleToDb(schedule) {
-  return {
-    project_id: schedule.projectId,
-    phase: schedule.phase,
-    title: schedule.title,
-    client_name: schedule.clientName,
-    content: schedule.content || "",
-    start_date: schedule.startDate,
-    end_date: schedule.endDate,
-    category: schedule.category,
-    status: schedule.status,
-    assignee_user_id: schedule.assigneeUserId || null,
-  };
-}
-
-async function supabaseRequest(path, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
+    league: {
+      name: "새싹 투자왕 리그",
+      ticket,
+      initialCash: INITIAL_CASH,
+      endDate: createEndDate(),
+      status: "ACTIVE"
     },
+    activeParticipantId: "",
+    selectedSymbol: "005930",
+    searchQuery: "",
+    chartRange: "1mo",
+    claimedTickets: [],
+    participants: [],
+    closedLeagues: []
+  };
+}
+
+let state = loadState();
+
+const els = {
+  leagueName: document.querySelector("#leagueName"),
+  leagueStatus: document.querySelector("#leagueStatus"),
+  initialCash: document.querySelector("#initialCash"),
+  daysLeft: document.querySelector("#daysLeft"),
+  myRank: document.querySelector("#myRank"),
+  leagueForm: document.querySelector("#leagueForm"),
+  leagueInput: document.querySelector("#leagueInput"),
+  endDateInput: document.querySelector("#endDateInput"),
+  activeLeagueLabel: document.querySelector("#activeLeagueLabel"),
+  activeLeagueMeta: document.querySelector("#activeLeagueMeta"),
+  closedLeagueCount: document.querySelector("#closedLeagueCount"),
+  closedLeagueList: document.querySelector("#closedLeagueList"),
+  newLeagueBtn: document.querySelector("#newLeagueBtn"),
+  deleteLeagueBtn: document.querySelector("#deleteLeagueBtn"),
+  inviteCode: document.querySelector("#inviteCode"),
+  inviteLink: document.querySelector("#inviteLink"),
+  joinForm: document.querySelector("#joinForm"),
+  nicknameInput: document.querySelector("#nicknameInput"),
+  participants: document.querySelector("#participants"),
+  activeUserSelect: document.querySelector("#activeUserSelect"),
+  cashBalance: document.querySelector("#cashBalance"),
+  totalAsset: document.querySelector("#totalAsset"),
+  stockSearchInput: document.querySelector("#stockSearchInput"),
+  selectedStockPanel: document.querySelector("#selectedStockPanel"),
+  chartTabs: document.querySelector(".chart-tabs"),
+  chartTitle: document.querySelector("#chartTitle"),
+  chartMeta: document.querySelector("#chartMeta"),
+  priceChart: document.querySelector("#priceChart"),
+  chartStatus: document.querySelector("#chartStatus"),
+  stockList: document.querySelector("#stockList"),
+  buyForm: document.querySelector("#buyForm"),
+  buyAmountInput: document.querySelector("#buyAmountInput"),
+  sellForm: document.querySelector("#sellForm"),
+  sellPanelTitle: document.querySelector("#sellPanelTitle"),
+  sellPanelMeta: document.querySelector("#sellPanelMeta"),
+  sellAmountInput: document.querySelector("#sellAmountInput"),
+  sellSubmitBtn: document.querySelector("#sellSubmitBtn"),
+  sellFullBtn: document.querySelector("#sellFullBtn"),
+  executionPanel: document.querySelector("#executionPanel"),
+  holdingsList: document.querySelector("#holdingsList"),
+  rankingList: document.querySelector("#rankingList"),
+  historyList: document.querySelector("#historyList"),
+  closeLeagueBtn: document.querySelector("#closeLeagueBtn"),
+  toast: document.querySelector("#toast")
+};
+
+function loadState() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return normalizeState(stored ? JSON.parse(stored) : createInitialState());
+  } catch {
+    return createInitialState();
+  }
+}
+
+function normalizeState(nextState) {
+  const base = createInitialState();
+  const merged = { ...base, ...nextState };
+  merged.league = { ...base.league, ...(nextState.league || {}) };
+  merged.participants = Array.isArray(nextState.participants) ? nextState.participants : [];
+  if (!merged.league.ticket || (merged.league.ticket === "TICKET-1000" && !merged.participants.length)) {
+    merged.league.ticket = merged.league.inviteCode && merged.league.inviteCode !== "TICKET-1000"
+      ? merged.league.inviteCode
+      : createInviteCode();
+  }
+  merged.closedLeagues = Array.isArray(nextState.closedLeagues) ? nextState.closedLeagues : [];
+  merged.claimedTickets = Array.isArray(nextState.claimedTickets) ? nextState.claimedTickets : [];
+  if (!merged.claimedTickets.length && merged.participants.length) {
+    merged.claimedTickets = merged.participants
+      .map((participant) => `${participant.ticket || merged.league.ticket}:${normalize(participant.nickname || "")}`)
+      .filter((claimKey) => !claimKey.endsWith(":"));
+  }
+  if (!merged.participants.some((participant) => participant.id === merged.activeParticipantId)) {
+    merged.activeParticipantId = merged.participants[0]?.id || "";
+  }
+  if (!CHART_RANGES[merged.chartRange]) {
+    merged.chartRange = "1mo";
+  }
+  return merged;
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function formatWon(value) {
+  return `${Math.round(Number(value) || 0).toLocaleString("ko-KR")}원`;
+}
+
+function formatCompactWon(value) {
+  const amount = Math.round(Number(value) || 0);
+  return amount % 10000 === 0 ? `${(amount / 10000).toLocaleString("ko-KR")}만원` : formatWon(amount);
+}
+
+function formatRate(value) {
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${Number(value || 0).toFixed(2)}%`;
+}
+
+function getInitialCash() {
+  return Number(state.league.initialCash) || INITIAL_CASH;
+}
+
+function normalize(value) {
+  return String(value).replace(/\s/g, "").toLowerCase();
+}
+
+function stockKey(stock) {
+  return stock.ySymbol || `${stock.symbol}.${stock.market}`;
+}
+
+function mergeStocks(primaryStocks, fallbackStocks) {
+  const stockMap = new Map();
+  fallbackStocks.forEach((stock) => stockMap.set(stockKey(stock), stock));
+  primaryStocks.forEach((stock) => stockMap.set(stockKey(stock), stock));
+  return Array.from(stockMap.values());
+}
+
+async function loadKrxMaster() {
+  try {
+    const response = await fetch("./krx-stocks.json", { cache: "no-store" });
+    if (!response.ok) return;
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return;
+    krxMasterStocks = rows
+      .map((stock) => ({
+        symbol: String(stock.symbol || "").padStart(6, "0"),
+        ySymbol: String(stock.ySymbol || stock.symbol || ""),
+        name: String(stock.name || ""),
+        market: String(stock.market || "KRX"),
+        price: Number(stock.price || 0),
+        change: Number(stock.change || 0)
+      }))
+      .filter((stock) => stock.symbol && stock.name);
+    stocks = mergeStocks(stocks, krxMasterStocks);
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function getStock(symbol) {
+  return stocks.find((stock) => stock.symbol === symbol) || DEFAULT_STOCKS.find((stock) => stock.symbol === symbol);
+}
+
+function updateStock(nextStock) {
+  if (!nextStock?.symbol) return;
+  const normalizedStock = {
+    symbol: String(nextStock.symbol),
+    ySymbol: String(nextStock.ySymbol || nextStock.symbol),
+    name: String(nextStock.name || nextStock.symbol),
+    market: String(nextStock.market || "UNKNOWN"),
+    price: Number(nextStock.price || 0),
+    change: Number(nextStock.change || 0)
+  };
+  stocks = mergeStocks([normalizedStock], stocks);
+}
+
+function getFilteredStocks() {
+  const query = normalize(state.searchQuery || "");
+  const searchableStocks = mergeStocks(stocks, mergeStocks(krxMasterStocks, DEFAULT_STOCKS));
+  if (!query) return searchableStocks;
+
+  return searchableStocks.filter((stock) => {
+    return (
+      normalize(stock.name).includes(query) ||
+      normalize(stock.symbol).includes(query) ||
+      normalize(stock.ySymbol || "").includes(query) ||
+      normalize(stock.market).includes(query)
+    );
+  });
+}
+
+function hasMarketApi() {
+  return Boolean(window.NGIK_CONFIG?.MARKET_DATA_FUNCTION_URL);
+}
+
+async function callMarketApi(params = {}) {
+  if (!hasMarketApi()) return null;
+  const url = new URL(window.NGIK_CONFIG.MARKET_DATA_FUNCTION_URL);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
   });
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Supabase request failed: ${response.status}`);
-  }
-
-  if (response.status === 204) return null;
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error(`Market API error: ${response.status}`);
+  return response.json();
 }
 
-async function loadData() {
-  state.loading = true;
-  state.error = "";
-  render();
+async function refreshStocks(query = "") {
+  try {
+    const payload = await callMarketApi({ query });
+    if (!Array.isArray(payload?.stocks) || !payload.stocks.length) return;
+    stocks = mergeStocks(payload.stocks.map((stock) => ({
+      symbol: String(stock.symbol),
+      ySymbol: String(stock.ySymbol || stock.symbol),
+      name: String(stock.name),
+      market: String(stock.market || "UNKNOWN"),
+      price: Number(stock.price || 0),
+      change: Number(stock.change || 0)
+    })), mergeStocks(krxMasterStocks, DEFAULT_STOCKS));
+
+    if (!getStock(state.selectedSymbol)) {
+      state.selectedSymbol = stocks[0].symbol;
+    }
+  } catch (error) {
+    console.warn(error);
+    showToast("시세 API 연결 실패. 샘플 가격으로 계속 진행합니다.");
+  }
+}
+
+function createSampleChart(stock) {
+  const base = Number(stock?.price || 10000);
+  const range = CHART_RANGES[state.chartRange] || CHART_RANGES["1mo"];
+  const length = state.chartRange === "1d" ? 36 : state.chartRange === "1w" ? 30 : 24;
+  return Array.from({ length }, (_, index) => {
+    const wave = Math.sin(index / 3) * 0.025;
+    const trend = (index - length / 2) * 0.002;
+    const close = base * (1 + wave + trend);
+    return {
+      time: `${range.label}-${length - 1 - index}`,
+      close,
+      open: close * 0.995,
+      high: close * 1.012,
+      low: close * 0.988,
+      volume: 0
+    };
+  });
+}
+
+async function loadSelectedChart() {
+  const stock = getStock(state.selectedSymbol);
+  if (!stock) return;
+
+  selectedChart = createSampleChart(stock);
+  chartSource = "sample";
+  const rangeConfig = CHART_RANGES[state.chartRange] || CHART_RANGES["1mo"];
 
   try {
-    let [users, projects, schedules] = await Promise.all([
-      supabaseRequest("app_users?select=*&order=created_at.asc"),
-      supabaseRequest("projects?select=*&order=created_at.asc"),
-      supabaseRequest("schedules?select=*&order=start_date.asc"),
-    ]);
-
-    if (users.length === 0 && projects.length === 0 && schedules.length === 0) {
-      await seedInitialData();
-      [users, projects, schedules] = await Promise.all([
-        supabaseRequest("app_users?select=*&order=created_at.asc"),
-        supabaseRequest("projects?select=*&order=created_at.asc"),
-        supabaseRequest("schedules?select=*&order=start_date.asc"),
-      ]);
+    const payload = await callMarketApi({
+      mode: "chart",
+      symbol: stock.symbol,
+      ySymbol: stock.ySymbol,
+      range: rangeConfig.range,
+      interval: rangeConfig.interval
+    });
+    if (payload?.stock) {
+      updateStock(payload.stock);
+      if (Array.isArray(payload.stock.chart) && payload.stock.chart.length) {
+        selectedChart = payload.stock.chart;
+        chartSource = payload.source || "yahoo";
+      }
     }
-
-    state.users = users.map(dbUserToApp);
-    state.projects = projects.map(dbProjectToApp);
-    state.schedules = schedules.map(dbScheduleToApp);
-    if (!state.users.some((user) => user.id === state.currentUserId)) {
-      state.currentUserId = state.users[0]?.id || "";
-    }
-    state.loading = false;
-    saveUi();
-    render();
   } catch (error) {
-    state.loading = false;
-    state.error = "Supabase 연결에 실패했습니다. supabase-schema.sql을 먼저 실행했는지 확인해주세요.";
-    console.error(error);
-    render();
+    console.warn(error);
   }
+
+  renderSelectedStock();
+  renderChart();
+  renderWallet();
+  renderSellPanel();
+  renderExecutionPanel();
+  renderHoldings();
+  renderRankings();
 }
 
-async function seedInitialData() {
-  const createdUsers = await supabaseRequest("app_users", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify([
-      userToDb({ name: "Admin", email: "zzummm@naver.com", profileColor: "#176d6b" }),
-      userToDb({ name: "지안", email: "jian@studio.kr", profileColor: "#d9413a" }),
-      userToDb({ name: "민우", email: "minwoo@studio.kr", profileColor: "#3e8f55" }),
-    ]),
-  });
-
-  const admin = createdUsers[0];
-  const jian = createdUsers[1];
-  const createdProjects = await supabaseRequest("projects", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify([
-      projectToDb({
-        name: "A브랜드 리뉴얼",
-        clientName: "A브랜드",
-        color: "#176d6b",
-        type: "complex",
-        category: "branding",
-        startDate: offsetDate(1),
-        endDate: offsetDate(16),
-        status: "pending",
-      }),
-      projectToDb({
-        name: "B출판 표지",
-        clientName: "B출판사",
-        color: "#6f5e96",
-        type: "single",
-        category: "illustration",
-        startDate: offsetDate(4),
-        endDate: offsetDate(10),
-        status: "pending",
-      }),
-    ]),
-  });
-
-  await supabaseRequest("schedules", {
-    method: "POST",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify([
-      scheduleToDb({
-        projectId: createdProjects[0].id,
-        phase: "로고",
-        title: "로고 2차 시안 전달",
-        clientName: "A브랜드",
-        content: "로고 시안과 컬러 가이드 정리",
-        startDate: offsetDate(1),
-        endDate: offsetDate(3),
-        category: "branding",
-        status: "pending",
-        assigneeUserId: jian.id,
-      }),
-      scheduleToDb({
-        projectId: createdProjects[0].id,
-        phase: "매뉴얼 제작",
-        title: "브랜드 매뉴얼 제작",
-        clientName: "A브랜드",
-        content: "로고 사용 규정, 컬러, 서체 페이지 구성",
-        startDate: offsetDate(5),
-        endDate: offsetDate(9),
-        category: "branding",
-        status: "pending",
-        assigneeUserId: admin.id,
-      }),
-      scheduleToDb({
-        projectId: createdProjects[0].id,
-        phase: "패키지 제작",
-        title: "패키지 시안 제작",
-        clientName: "A브랜드",
-        content: "패키지 전면, 측면, 후면 시안 제작",
-        startDate: offsetDate(10),
-        endDate: offsetDate(16),
-        category: "branding",
-        status: "pending",
-        assigneeUserId: admin.id,
-      }),
-      scheduleToDb({
-        projectId: createdProjects[1].id,
-        phase: "단발 프로젝트",
-        title: "표지 일러스트 러프",
-        clientName: "B출판사",
-        content: "표지용 러프 3안 업로드",
-        startDate: offsetDate(4),
-        endDate: offsetDate(10),
-        category: "illustration",
-        status: "pending",
-        assigneeUserId: admin.id,
-      }),
-    ]),
-  });
+function calculateParticipant(participant) {
+  const valuation = participant.holdings.reduce((sum, holding) => {
+    const stock = getStock(holding.symbol);
+    return stock ? sum + holding.quantity * stock.price : sum;
+  }, 0);
+  const totalAsset = participant.cash + valuation;
+  const initialCash = getInitialCash();
+  const profit = totalAsset - initialCash;
+  const returnRate = (profit / initialCash) * 100;
+  return { valuation, totalAsset, profit, returnRate };
 }
 
-function filteredSchedules() {
-  return state.schedules.filter((schedule) => {
-    const projectOk = els.projectFilter.value === "all" || schedule.projectId === els.projectFilter.value;
-    const userOk = els.userFilter.value === "all" || schedule.assigneeUserId === els.userFilter.value;
-    const categoryOk = els.categoryFilter.value === "all" || schedule.category === els.categoryFilter.value;
-    const statusOk = els.statusFilter.value === "all" || schedule.status === els.statusFilter.value;
-    return projectOk && userOk && categoryOk && statusOk;
-  });
+function getRankings() {
+  return state.participants
+    .map((participant) => ({ ...participant, metrics: calculateParticipant(participant) }))
+    .sort((a, b) => {
+      if (b.metrics.totalAsset !== a.metrics.totalAsset) return b.metrics.totalAsset - a.metrics.totalAsset;
+      if (b.metrics.returnRate !== a.metrics.returnRate) return b.metrics.returnRate - a.metrics.returnRate;
+      return a.nickname.localeCompare(b.nickname, "ko-KR");
+    });
 }
 
-function dDay(dateString) {
+function getActiveParticipant() {
+  return state.participants.find((item) => item.id === state.activeParticipantId) || state.participants[0] || null;
+}
+
+function getSelectedHolding() {
+  const active = getActiveParticipant();
+  if (!active || !selectedHoldingSymbol) return null;
+  return active.holdings.find((holding) => holding.symbol === selectedHoldingSymbol) || null;
+}
+
+function isClosed() {
+  return state.league.status === "CLOSED" || isLeagueExpired();
+}
+
+function isLeagueExpired() {
+  const end = new Date(`${state.league.endDate}T23:59:59`);
+  return Number.isFinite(end.getTime()) && Date.now() > end.getTime();
+}
+
+function isPastEndDate(value) {
+  if (!value) return false;
+  const end = new Date(`${value}T23:59:59`);
+  return Number.isFinite(end.getTime()) && Date.now() > end.getTime();
+}
+
+function showToast(message) {
+  els.toast.textContent = message;
+  els.toast.classList.add("show");
+  window.setTimeout(() => els.toast.classList.remove("show"), 1900);
+}
+
+function renderHeader() {
+  const rankings = getRankings();
+  const active = getActiveParticipant();
+  const activeRank = active ? rankings.findIndex((item) => item.id === active.id) + 1 : 0;
   const today = new Date();
-  const target = new Date(`${dateString}T00:00:00`);
-  today.setHours(0, 0, 0, 0);
-  const diff = Math.round((target - today) / 86400000);
-  if (diff === 0) return "D-Day";
-  if (diff > 0) return `D-${diff}`;
-  return `D+${Math.abs(diff)}`;
+  const end = new Date(`${state.league.endDate}T23:59:59`);
+  const daysLeft = Math.max(0, Math.ceil((end - today) / 86400000));
+
+  els.leagueName.textContent = state.league.name;
+  els.leagueInput.value = state.league.name;
+  els.endDateInput.value = state.league.endDate;
+  els.inviteCode.textContent = state.league.ticket;
+  const inviteUrl = `${window.location.href.split("?")[0]}?ticket=${encodeURIComponent(state.league.ticket)}`;
+  els.inviteLink.href = inviteUrl;
+  els.inviteLink.textContent = inviteUrl;
+  els.initialCash.textContent = formatCompactWon(getInitialCash());
+  els.daysLeft.textContent = isClosed() ? "종료" : `${daysLeft}일`;
+  els.myRank.textContent = activeRank ? `${activeRank}위` : "참여 전";
+  els.leagueStatus.textContent = isClosed() ? "종료됨" : "진행 중";
+  els.leagueStatus.classList.toggle("closed", isClosed());
 }
 
-function daysUntil(dateString) {
-  const today = new Date();
-  const target = new Date(`${dateString}T00:00:00`);
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target - today) / 86400000);
+function renderLeagueManagement() {
+  els.activeLeagueLabel.textContent = state.league.name;
+  els.activeLeagueMeta.textContent = isClosed()
+    ? "이 리그는 종료되었습니다. 리그 관리에서 새 리그를 시작하세요."
+    : `${state.participants.length}명 참여 중 · 종료일 ${state.league.endDate}`;
+  els.closedLeagueCount.textContent = `${state.closedLeagues.length}개`;
+  els.closedLeagueList.textContent = state.closedLeagues.length
+    ? state.closedLeagues.map((league) => league.name).slice(-3).join(", ")
+    : "아직 종료된 리그가 없습니다.";
+  els.closeLeagueBtn.disabled = isClosed();
 }
 
-function scheduleTone(schedule) {
-  if (schedule.status === "completed") {
-    return { ...scheduleTones.later, label: "완료" };
+function renderParticipants() {
+  if (!state.participants.length) {
+    els.participants.innerHTML = `<p class="empty">아직 참여자가 없습니다. 닉네임을 등록하면 1,000만원이 지급됩니다.</p>`;
+    return;
   }
-  const days = daysUntil(schedule.endDate);
-  if (days <= 3) return scheduleTones.urgent;
-  if (days <= 7) return scheduleTones.starting;
-  if (days <= 14) return scheduleTones.relaxed;
-  return scheduleTones.later;
+
+  els.participants.innerHTML = state.participants
+    .map((participant) => {
+      const metrics = calculateParticipant(participant);
+      const className = metrics.returnRate >= 0 ? "gain" : "loss";
+      return `
+        <div class="person">
+          <div>
+            <strong>${participant.nickname}</strong>
+            <p class="muted">${formatWon(metrics.totalAsset)}</p>
+          </div>
+          <span class="${className}">${formatRate(metrics.returnRate)}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderActiveSelect() {
+  if (!state.participants.length) {
+    els.activeUserSelect.innerHTML = `<option value="">참여자를 먼저 등록</option>`;
+    return;
+  }
+
+  els.activeUserSelect.innerHTML = state.participants
+    .map((participant) => {
+      const selected = participant.id === state.activeParticipantId ? "selected" : "";
+      return `<option value="${participant.id}" ${selected}>${participant.nickname}</option>`;
+    })
+    .join("");
+}
+
+function renderSelectedStock() {
+  const stock = getStock(state.selectedSymbol);
+  if (!stock) {
+    els.selectedStockPanel.innerHTML = `<p>종목을 선택해주세요.</p>`;
+    return;
+  }
+  const className = stock.change >= 0 ? "gain" : "loss";
+  els.selectedStockPanel.innerHTML = `
+    <div>
+      <span>선택 종목</span>
+      <strong>${stock.name}</strong>
+      <p>${stock.symbol} · ${stock.market} · ${stock.ySymbol || stock.symbol}</p>
+    </div>
+    <div>
+      <strong>${formatWon(stock.price)}</strong>
+      <p class="${className}">${formatRate(stock.change)}</p>
+    </div>
+  `;
+}
+
+function renderChart() {
+  const stock = getStock(state.selectedSymbol);
+  const rangeConfig = CHART_RANGES[state.chartRange] || CHART_RANGES["1mo"];
+  els.chartTitle.textContent = stock ? `${stock.name} ${rangeConfig.label}` : "종목을 선택하세요";
+  els.chartMeta.textContent = stock ? `${formatWon(stock.price)} · ${formatRate(stock.change)}` : "현재가 검색 후 표시됩니다.";
+  document.querySelectorAll(".chart-tabs button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.range === state.chartRange);
+  });
+
+  const closes = selectedChart.map((item) => Number(item.close)).filter((value) => value > 0);
+  if (closes.length < 2) {
+    els.priceChart.innerHTML = `<div class="chart-empty">차트 데이터가 아직 없습니다.</div>`;
+    els.chartStatus.textContent = "종목을 선택하면 1개월 차트를 불러옵니다.";
+    return;
+  }
+
+  const width = 320;
+  const height = 150;
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const spread = max - min || 1;
+  const points = closes.map((close, index) => {
+    const x = (index / (closes.length - 1)) * width;
+    const y = height - ((close - min) / spread) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const isUp = closes.at(-1) >= closes[0];
+  const stroke = isUp ? "#10a85f" : "#e64b61";
+
+  els.priceChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${stock?.name || "종목"} 1개월 가격 차트">
+      <polyline points="${points.join(" ")}" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></polyline>
+      <line x1="0" y1="${height - 1}" x2="${width}" y2="${height - 1}" stroke="#dce4ea" stroke-width="1"></line>
+    </svg>
+  `;
+  els.chartStatus.textContent = chartSource === "yahoo"
+    ? `Yahoo Finance ${rangeConfig.label} 기준입니다.`
+    : "샘플 차트입니다. Supabase 함수 배포 후 Yahoo 데이터로 바뀝니다.";
+}
+
+function renderStocks() {
+  const filteredStocks = getFilteredStocks();
+  els.stockSearchInput.value = state.searchQuery;
+
+  if (!filteredStocks.length) {
+    els.stockList.innerHTML = `<p class="empty">검색 결과가 없습니다. 종목명이나 코드를 다시 입력해보세요.</p>`;
+    renderSelectedStock();
+    return;
+  }
+
+  els.stockList.innerHTML = filteredStocks
+    .map((stock) => {
+      const selected = stock.symbol === state.selectedSymbol ? "selected" : "";
+      const className = stock.change >= 0 ? "gain" : "loss";
+      return `
+        <article class="stock-card ${selected}" data-symbol="${stock.symbol}">
+          <div>
+            <strong>${stock.name}</strong>
+            <p class="muted">${stock.symbol} · ${stock.market}</p>
+          </div>
+          <div>
+            <div class="price">${formatWon(stock.price)}</div>
+            <div class="${className}">${formatRate(stock.change)}</div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+  renderSelectedStock();
+}
+
+function renderWallet() {
+  const active = getActiveParticipant();
+  if (!active) {
+    els.cashBalance.textContent = "참여 전";
+    els.totalAsset.textContent = "참여 전";
+    return;
+  }
+  const metrics = calculateParticipant(active);
+  els.cashBalance.textContent = formatWon(active.cash);
+  els.totalAsset.textContent = formatWon(metrics.totalAsset);
+}
+
+function renderSellPanel() {
+  const active = getActiveParticipant();
+  const holding = getSelectedHolding();
+  const stock = holding ? getStock(holding.symbol) : null;
+
+  if (!active) {
+    els.sellPanelTitle.textContent = "참여자를 먼저 등록하세요";
+    els.sellPanelMeta.textContent = "리그 참여 후 보유 종목을 선택하면 매도할 수 있습니다.";
+    els.sellAmountInput.value = "";
+    els.sellAmountInput.disabled = true;
+    els.sellSubmitBtn.disabled = true;
+    els.sellFullBtn.disabled = true;
+    return;
+  }
+
+  if (!holding || !stock) {
+    selectedHoldingSymbol = "";
+    els.sellPanelTitle.textContent = "보유 종목을 선택하세요";
+    els.sellPanelMeta.textContent = "보유 종목을 누르면 일부 매도와 전량 매도를 할 수 있습니다.";
+    els.sellAmountInput.value = "";
+    els.sellAmountInput.disabled = true;
+    els.sellSubmitBtn.disabled = true;
+    els.sellFullBtn.disabled = true;
+    return;
+  }
+
+  const valuation = holding.quantity * stock.price;
+  const invested = holding.quantity * holding.buyPrice;
+  const profitRate = invested ? ((valuation - invested) / invested) * 100 : 0;
+
+  els.sellPanelTitle.textContent = stock.name;
+  els.sellPanelMeta.textContent = `${holding.quantity.toFixed(4)}주 보유 · 평가 ${formatWon(valuation)} · ${formatRate(profitRate)}`;
+  els.sellAmountInput.disabled = false;
+  els.sellSubmitBtn.disabled = isClosed();
+  els.sellFullBtn.disabled = isClosed();
+}
+
+function renderExecutionPanel() {
+  const active = getActiveParticipant();
+  const latest = active?.history?.at(-1);
+
+  if (!active || !latest) {
+    els.executionPanel.innerHTML = `
+      <span>마지막 체결</span>
+      <strong>아직 체결된 주문이 없습니다.</strong>
+      <p>매수나 매도 후 체결 수량, 체결가, 체결금액이 표시됩니다.</p>
+    `;
+    return;
+  }
+
+  const sideClass = latest.type === "매수" ? "buy" : "sell";
+  els.executionPanel.innerHTML = `
+    <span>마지막 체결</span>
+    <strong class="${sideClass}">${latest.type} · ${latest.stockName}</strong>
+    <p>${latest.quantity.toFixed(4)}주 · 체결가 ${formatWon(latest.executionPrice)} · 체결금액 ${formatWon(latest.amount)}</p>
+    ${typeof latest.realizedProfit === "number" ? `<p class="${latest.realizedProfit >= 0 ? "gain" : "loss"}">실현손익 ${formatWon(latest.realizedProfit)} · ${formatRate(latest.realizedRate)}</p>` : ""}
+  `;
+}
+
+function renderHoldings() {
+  const active = getActiveParticipant();
+  if (!active) {
+    els.holdingsList.innerHTML = `<p class="empty">리그에서 사용할 닉네임을 먼저 등록해주세요.</p>`;
+    return;
+  }
+  if (!active.holdings.length) {
+    selectedHoldingSymbol = "";
+    els.holdingsList.innerHTML = `<p class="empty">아직 보유 종목이 없습니다.</p>`;
+    return;
+  }
+
+  if (!active.holdings.some((holding) => holding.symbol === selectedHoldingSymbol)) {
+    selectedHoldingSymbol = "";
+  }
+
+  els.holdingsList.innerHTML = active.holdings
+    .map((holding) => {
+      const stock = getStock(holding.symbol);
+      const valuation = holding.quantity * stock.price;
+      const invested = holding.quantity * holding.buyPrice;
+      const profitRate = ((valuation - invested) / invested) * 100;
+      const className = profitRate >= 0 ? "gain" : "loss";
+      const selectedClass = holding.symbol === selectedHoldingSymbol ? " selected" : "";
+      return `
+        <button class="holding-row${selectedClass}" type="button" data-symbol="${holding.symbol}">
+          <div>
+            <strong>${stock.name}</strong>
+            <p class="muted">${holding.quantity.toFixed(4)}주 · ${formatWon(valuation)}</p>
+          </div>
+          <div class="holding-actions">
+            <span class="${className}">${formatRate(profitRate)}</span>
+            <span class="sell-hint">매도 선택</span>
+          </div>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderRankings() {
+  const rankings = getRankings();
+  if (!rankings.length) {
+    els.rankingList.innerHTML = `<p class="empty">참여자가 등록되면 랭킹이 표시됩니다.</p>`;
+    return;
+  }
+
+  els.rankingList.innerHTML = rankings
+    .map((participant, index) => {
+      const className = participant.metrics.returnRate >= 0 ? "gain" : "loss";
+      return `
+        <article class="rank-card">
+          <div class="rank-badge">${index + 1}</div>
+          <div>
+            <strong>${participant.nickname}</strong>
+            <p class="muted">현금 ${formatWon(participant.cash)}</p>
+          </div>
+          <div>
+            <div class="price">${formatWon(participant.metrics.totalAsset)}</div>
+            <div class="${className}">${formatRate(participant.metrics.returnRate)}</div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderHistory() {
+  const active = getActiveParticipant();
+  if (!active) {
+    els.historyList.innerHTML = `<p class="empty">리그 참여 후 거래 기록이 표시됩니다.</p>`;
+    return;
+  }
+  if (!active.history.length) {
+    els.historyList.innerHTML = `<p class="empty">거래 기록이 없습니다.</p>`;
+    return;
+  }
+
+  els.historyList.innerHTML = active.history
+    .slice()
+    .reverse()
+    .map((item) => `
+      <article class="history-card">
+        <p>${item.type} · ${item.stockName}</p>
+        <span>${item.quantity.toFixed(4)}주 · 체결가 ${formatWon(item.executionPrice)} · ${formatWon(item.amount)} · ${item.createdAt}</span>
+        ${typeof item.realizedProfit === "number" ? `<strong class="${item.realizedProfit >= 0 ? "gain" : "loss"}">실현손익 ${formatWon(item.realizedProfit)} · ${formatRate(item.realizedRate)}</strong>` : ""}
+      </article>
+    `)
+    .join("");
 }
 
 function render() {
-  saveUi();
-  renderControls();
-  renderView();
-  renderDashboard();
-  renderCalendar();
-  renderCategories();
-  renderUsers();
+  renderHeader();
+  renderLeagueManagement();
+  renderParticipants();
+  renderActiveSelect();
+  renderStocks();
+  renderSelectedStock();
+  renderChart();
+  renderWallet();
+  renderSellPanel();
+  renderExecutionPanel();
+  renderHoldings();
+  renderRankings();
+  renderHistory();
+  saveState();
 }
 
-function renderControls() {
-  els.currentUserSelect.innerHTML = state.users
-    .map((user) => `<option value="${user.id}" ${user.id === state.currentUserId ? "selected" : ""}>${user.name}</option>`)
-    .join("");
-
-  const currentUserFilter = els.userFilter.value || "all";
-  els.userFilter.innerHTML = [
-    `<option value="all">전체 사용자</option>`,
-    ...state.users.map((user) => `<option value="${user.id}">${user.name}</option>`),
-  ].join("");
-  els.userFilter.value = state.users.some((user) => user.id === currentUserFilter) ? currentUserFilter : "all";
-
-  const currentProjectFilter = els.projectFilter.value || "all";
-  els.projectFilter.innerHTML = [
-    `<option value="all">전체 프로젝트</option>`,
-    ...state.projects.map((project) => `<option value="${project.id}">${project.name}</option>`),
-  ].join("");
-  els.projectFilter.value = state.projects.some((project) => project.id === currentProjectFilter) ? currentProjectFilter : "all";
-
-  const currentCategoryFilter = els.categoryFilter.value || "all";
-  els.categoryFilter.innerHTML = [
-    `<option value="all">전체 카테고리</option>`,
-    ...Object.entries(categories).map(([value, label]) => `<option value="${value}">${label}</option>`),
-  ].join("");
-  els.categoryFilter.value = categories[currentCategoryFilter] ? currentCategoryFilter : "all";
+function addHistory(participant, type, stock, amount, quantity, extra = {}) {
+  participant.history.push({
+    type,
+    stockName: stock.name,
+    amount,
+    quantity,
+    executionPrice: extra.executionPrice ?? stock.price,
+    ...extra,
+    createdAt: new Date().toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    })
+  });
 }
 
-function renderView() {
-  els.navItems.forEach((item) => item.classList.toggle("active", item.dataset.view === state.activeView));
-  els.views.forEach((view) => view.classList.toggle("active-view", view.id === `${state.activeView}View`));
-  const [eyebrow, title] = viewCopy[state.activeView] || viewCopy.dashboard;
-  els.viewEyebrow.textContent = eyebrow;
-  els.viewTitle.textContent = title;
-  document.querySelector(".filters").style.display = ["dashboard", "calendar", "categories"].includes(state.activeView) ? "flex" : "none";
+function startNewLeague() {
+  const hasLeagueData = state.participants.length || state.closedLeagues.length || state.league.status === "CLOSED";
+  if (hasLeagueData) {
+    const confirmed = window.confirm(
+      "새 리그를 시작하면 현재 리그의 참여자, 보유 종목, 거래 기록이 초기화됩니다. 계속할까요?"
+    );
+    if (!confirmed) return;
+  }
+
+  if (state.participants.length || isClosed()) {
+    state.closedLeagues.push({
+      name: state.league.name,
+      status: state.league.status,
+      endedAt: new Date().toLocaleDateString("ko-KR"),
+      participantCount: state.participants.length
+    });
+  }
+
+  state.league = {
+    name: els.leagueInput.value.trim() || "새싹 투자왕 리그",
+    ticket: createInviteCode(),
+    initialCash: INITIAL_CASH,
+    endDate: isPastEndDate(els.endDateInput.value) ? createEndDate() : (els.endDateInput.value || createEndDate()),
+    status: "ACTIVE"
+  };
+  state.participants = [];
+  state.activeParticipantId = "";
+  state.searchQuery = "";
+  showToast("새 리그가 시작되었습니다. 참여자를 등록해주세요.");
+  render();
 }
 
-function renderDashboard() {
-  if (state.loading) {
-    els.summaryGrid.innerHTML = "";
-    els.projectGrid.innerHTML = `<article class="notice">Supabase 데이터를 불러오는 중입니다.</article>`;
+function deleteCurrentLeague() {
+  const confirmed = window.confirm(
+    "현재 리그를 삭제하면 참여자, 보유 종목, 거래 기록, 링크 티켓 정보가 모두 사라집니다. 삭제할까요?"
+  );
+  if (!confirmed) return;
+
+  state.league = {
+    name: "새싹 투자왕 리그",
+    ticket: createInviteCode(),
+    initialCash: INITIAL_CASH,
+    endDate: createEndDate(),
+    status: "ACTIVE"
+  };
+  state.participants = [];
+  state.activeParticipantId = "";
+  state.claimedTickets = [];
+  state.searchQuery = "";
+  state.selectedSymbol = "005930";
+  showToast("리그를 삭제하고 새 리그 준비 상태로 되돌렸습니다.");
+  render();
+}
+
+async function buySelectedStock() {
+  if (isClosed()) {
+    showToast("종료된 리그에서는 거래할 수 없습니다.");
     return;
   }
-  if (state.error) {
-    els.summaryGrid.innerHTML = "";
-    els.projectGrid.innerHTML = `<article class="notice">${state.error}</article>`;
+
+  const active = getActiveParticipant();
+  if (!active) {
+    showToast("먼저 리그 참여 닉네임을 등록해주세요.");
     return;
   }
 
-  const schedules = filteredSchedules();
-  const pending = schedules.filter((schedule) => schedule.status === "pending");
-  const complex = state.projects.filter((project) => project.type === "complex");
-  const dueSoon = pending.filter((schedule) => {
-    const start = new Date(`${schedule.startDate}T00:00:00`);
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    return start - now <= 3 * 86400000;
+  await loadSelectedChart();
+  const stock = getStock(state.selectedSymbol);
+  const amount = Number(els.buyAmountInput.value.replaceAll(",", ""));
+
+  if (!amount || amount < 10000) {
+    showToast("매수 금액은 1만원 이상 입력해주세요.");
+    return;
+  }
+
+  if (amount > active.cash) {
+    showToast("보유 현금보다 많이 살 수 없습니다.");
+    return;
+  }
+
+  const quantity = amount / stock.price;
+  const holding = active.holdings.find((item) => item.symbol === stock.symbol);
+
+  if (holding) {
+    const currentInvested = holding.quantity * holding.buyPrice;
+    const nextQuantity = holding.quantity + quantity;
+    holding.buyPrice = (currentInvested + amount) / nextQuantity;
+    holding.quantity = nextQuantity;
+  } else {
+    active.holdings.push({ symbol: stock.symbol, quantity, buyPrice: stock.price });
+  }
+
+  active.cash -= amount;
+  selectedHoldingSymbol = stock.symbol;
+  addHistory(active, "매수", stock, amount, quantity, { executionPrice: stock.price });
+  showToast(`${stock.name} ${quantity.toFixed(4)}주 · ${formatWon(stock.price)} 체결`);
+  render();
+}
+
+function sellHolding(symbol, requestedAmount = null) {
+  if (isClosed()) {
+    showToast("종료된 리그에서는 거래할 수 없습니다.");
+    return;
+  }
+
+  const active = getActiveParticipant();
+  const holdingIndex = active?.holdings.findIndex((item) => item.symbol === symbol) ?? -1;
+  if (holdingIndex === -1) return;
+
+  const holding = active.holdings[holdingIndex];
+  const stock = getStock(symbol);
+  const maxAmount = holding.quantity * stock.price;
+  const amount = requestedAmount === null ? maxAmount : Number(requestedAmount);
+
+  if (!amount || amount < 10000) {
+    showToast("매도 금액은 1만원 이상 입력해주세요.");
+    return;
+  }
+
+  if (amount > maxAmount + 1) {
+    showToast("보유 평가금액보다 많이 팔 수 없습니다.");
+    return;
+  }
+
+  const sellQuantity = Math.min(holding.quantity, amount / stock.price);
+  const sellAmount = sellQuantity * stock.price;
+  const invested = sellQuantity * holding.buyPrice;
+  const realizedProfit = sellAmount - invested;
+  const realizedRate = invested ? (realizedProfit / invested) * 100 : 0;
+  active.cash += sellAmount;
+
+  if (sellQuantity >= holding.quantity - 0.000001) {
+    active.holdings.splice(holdingIndex, 1);
+    selectedHoldingSymbol = "";
+  } else {
+    holding.quantity -= sellQuantity;
+  }
+
+  addHistory(active, "매도", stock, sellAmount, sellQuantity, { executionPrice: stock.price, realizedProfit, realizedRate });
+  showToast(`${stock.name} ${sellQuantity.toFixed(4)}주 · ${formatWon(stock.price)} 매도 체결`);
+  render();
+}
+
+async function selectStock(symbol) {
+  state.selectedSymbol = symbol;
+  renderStocks();
+  renderChart();
+  await loadSelectedChart();
+  saveState();
+}
+
+async function selectHoldingForSell(symbol) {
+  selectedHoldingSymbol = symbol;
+  state.selectedSymbol = symbol;
+  render();
+  await loadSelectedChart();
+  saveState();
+}
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+    document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
+    tab.classList.add("active");
+    document.querySelector(`#${tab.dataset.view}`).classList.add("active");
   });
+});
 
-  els.summaryGrid.innerHTML = [
-    ["전체 일정", schedules.length],
-    ["미완료", pending.length],
-    ["복합 프로젝트", complex.length],
-    ["3일 이내 시작", dueSoon.length],
-  ]
-    .map(([label, value]) => `<article class="summary-card"><span class="small-muted">${label}</span><strong>${value}</strong></article>`)
-    .join("");
-
-  els.projectGrid.innerHTML = state.projects
-    .map((project) => {
-      const projectSchedules = schedules.filter((schedule) => schedule.projectId === project.id);
-      const completed = projectSchedules.length > 0 && projectSchedules.every((schedule) => schedule.status === "completed");
-      const phaseNames = [...new Set(projectSchedules.map((schedule) => schedule.phase))];
-      const phaseGroups = phaseNames.map((phase) => {
-        const phaseSchedules = projectSchedules.filter((schedule) => schedule.phase === phase);
-        return `<section class="phase-group">
-          <div class="phase-title">${phase}<span>${phaseSchedules.length}개</span></div>
-          <div class="task-list">${phaseSchedules.map((schedule) => scheduleRow(schedule)).join("")}</div>
-        </section>`;
-      });
-      return `<article class="project-card ${completed || project.status === "completed" ? "completed" : ""}">
-        <div class="project-top" style="background:${project.color}"></div>
-        <div class="project-body">
-          <div class="project-meta">${project.startDate} - ${project.endDate} · ${dDay(project.startDate)}</div>
-          <div class="project-title-row">
-            <h3>${project.name}</h3>
-            <div class="project-card-actions">
-              <button class="ghost-button small-button" data-action="editProject" data-id="${project.id}" type="button">수정</button>
-              <button class="ghost-button danger-button small-button" data-action="deleteProject" data-id="${project.id}" type="button">삭제</button>
-            </div>
-          </div>
-          <div class="project-tags">
-            <span class="status-pill">${projectTypes[project.type]}</span>
-            <span class="status-pill">${categories[project.category] || "기타"}</span>
-            <span class="category-pill">${project.clientName}</span>
-          </div>
-          ${phaseGroups.join("") || `<p class="small-muted">등록된 일정이 없습니다.</p>`}
-        </div>
-      </article>`;
-    })
-    .join("");
-}
-
-function scheduleRow(schedule) {
-  const assignee = byId(state.users, schedule.assigneeUserId);
-  const tone = scheduleTone(schedule);
-  return `<div class="task-row ${schedule.status === "completed" ? "completed" : ""}" style="border-left: 6px solid ${tone.color}">
-    <input type="checkbox" data-action="toggleSchedule" data-id="${schedule.id}" ${schedule.status === "completed" ? "checked" : ""} />
-    <div>
-      <strong>${schedule.title}</strong>
-      <div class="task-meta">${schedule.startDate} - ${schedule.endDate} · ${schedule.clientName} · ${assignee?.name || "미지정"}</div>
-      <div class="task-content">${schedule.content || ""}</div>
-    </div>
-    <span class="schedule-tone-pill" style="background:${tone.color}; color:${tone.text || "#ffffff"}">${tone.label}</span>
-  </div>`;
-}
-
-function renderCalendar() {
-  const base = new Date(state.calendarDate);
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  els.calendarTitle.textContent = `${year}년 ${month + 1}월`;
-
-  const first = new Date(year, month, 1);
-  const start = new Date(first);
-  start.setDate(first.getDate() - first.getDay());
-
-  const days = [];
-  const mobileDays = [];
-  for (let index = 0; index < 42; index += 1) {
-    const day = new Date(start);
-    day.setDate(start.getDate() + index);
-    const key = day.toISOString().slice(0, 10);
-    const events = filteredSchedules().filter((schedule) => key >= schedule.startDate && key <= schedule.endDate);
-    const eventHtml = events.map((schedule) => calendarEventHtml(schedule)).join("");
-    days.push(`<div class="calendar-day ${day.getMonth() === month ? "" : "muted-day"}">
-      <span class="calendar-date">${day.getDate()}</span>
-      ${eventHtml}
-    </div>`);
-    if (day.getMonth() === month && events.length > 0) {
-      mobileDays.push(`<section class="mobile-calendar-day">
-        <div class="mobile-date">
-          <strong>${month + 1}월 ${day.getDate()}일</strong>
-          <span>${["일", "월", "화", "수", "목", "금", "토"][day.getDay()]}</span>
-        </div>
-        <div class="mobile-events">${eventHtml}</div>
-      </section>`);
-    }
-  }
-  els.calendarGrid.innerHTML = days.join("");
-  els.mobileCalendarList.innerHTML = mobileDays.join("") || `<p class="small-muted">이번 달 표시할 일정이 없습니다.</p>`;
-}
-
-function calendarEventHtml(schedule) {
-  const project = byId(state.projects, schedule.projectId);
-  const tone = scheduleTone(schedule);
-  return `<span class="calendar-event" style="background:${tone.color}; color:${tone.text || "#ffffff"}">
-    <span class="project-color-chip" style="background:${project?.color || "#ffffff"}"></span>
-    <span class="calendar-event-text">${schedule.title}</span>
-    <small>${project?.name || ""} · ${schedule.phase}</small>
-  </span>`;
-}
-
-function renderCategories() {
-  const tabs = [["all", "전체"], ...Object.entries(categories)];
-  els.categoryTabs.innerHTML = tabs
-    .map(([value, label]) => `<button class="tab-button ${state.activeCategory === value ? "active" : ""}" data-category-tab="${value}">${label}</button>`)
-    .join("");
-
-  const rows = filteredSchedules()
-    .filter((schedule) => state.activeCategory === "all" || schedule.category === state.activeCategory)
-    .sort((a, b) => a.startDate.localeCompare(b.startDate))
-    .map((schedule) => {
-      const project = byId(state.projects, schedule.projectId);
-      const assignee = byId(state.users, schedule.assigneeUserId);
-      return `<tr>
-        <td>${schedule.startDate} - ${schedule.endDate}<br><span class="small-muted">${dDay(schedule.startDate)}</span></td>
-        <td>${schedule.clientName}</td>
-        <td><strong>${schedule.title}</strong><br><span class="small-muted">${schedule.content}</span></td>
-        <td>${project?.name || "미지정"}</td>
-        <td>${schedule.phase}</td>
-        <td>${assignee?.name || "미지정"}</td>
-        <td><span class="status-pill">${schedule.status === "completed" ? "완료" : "미완료"}</span></td>
-      </tr>`;
-    })
-    .join("");
-  els.categoryTable.innerHTML = rows || `<tr><td colspan="7">표시할 내역이 없습니다.</td></tr>`;
-}
-
-function renderUsers() {
-  const activeUser = currentUser();
-  els.userForm.style.display = "flex";
-  els.userList.innerHTML = state.users
-    .map((user) => {
-      const actionButton =
-        user.id === activeUser?.id
-          ? `<button class="ghost-button danger-button" data-action="withdrawUser" data-id="${user.id}">팀원 탈퇴</button>`
-          : `<button class="ghost-button danger-button" data-action="removeUser" data-id="${user.id}">팀원 제거</button>`;
-      return `<article class="person-card">
-      <h3><span class="dot" style="background:${user.profileColor}"></span> ${user.name}</h3>
-      <p class="small-muted">${user.email}</p>
-      <div class="card-actions">${actionButton}</div>
-    </article>`;
-    })
-    .join("");
-}
-
-function addDetailRow(values = {}) {
-  const row = document.createElement("div");
-  row.className = "detail-row";
-  const selectedCategory = values.category || els.projectForm.category?.value || "branding";
-  row.innerHTML = `
-    <label>세부 항목<input name="detailPhase" value="${values.phase || ""}" placeholder="예: 로고" required /></label>
-    <label>일정명<input name="detailTitle" value="${values.title || ""}" placeholder="예: 로고 1차 시안" required /></label>
-    <label>시작일<input name="detailStartDate" type="date" value="${values.startDate || offsetDate(1)}" required /></label>
-    <label>종료일<input name="detailEndDate" type="date" value="${values.endDate || offsetDate(3)}" required /></label>
-    <label>카테고리<select name="detailCategory">${Object.entries(categories).map(([value, label]) => `<option value="${value}" ${selectedCategory === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-    <label>담당자<select name="detailAssignee">${state.users.map((user) => `<option value="${user.id}" ${values.assigneeUserId === user.id ? "selected" : ""}>${user.name}</option>`).join("")}</select></label>
-    <label class="detail-content">내용<input name="detailContent" value="${values.content || ""}" placeholder="세부 일정 내용" /></label>
-    <button class="ghost-button remove-detail" type="button" data-action="removeDetailRow">삭제</button>
-  `;
-  els.detailRows.appendChild(row);
-}
-
-function resetProjectModalForCreate() {
-  state.editingProjectId = "";
-  els.projectForm.reset();
-  els.projectModalTitle.textContent = "프로젝트 등록";
-  els.projectSubmitButton.textContent = "프로젝트 등록";
-  els.projectForm.type.value = "single";
-  els.projectForm.color.value = "#176d6b";
-  els.projectForm.category.value = "branding";
-  els.projectForm.startDate.value = offsetDate(1);
-  els.projectForm.endDate.value = offsetDate(14);
-  els.detailRows.innerHTML = "";
-  addDetailRow({ phase: "로고", title: "로고 1차 시안", startDate: offsetDate(1), endDate: offsetDate(3), category: "branding" });
-  addDetailRow({ phase: "매뉴얼 제작", title: "브랜드 매뉴얼 제작", startDate: offsetDate(4), endDate: offsetDate(8), category: "branding" });
-  addDetailRow({ phase: "패키지 제작", title: "패키지 시안 제작", startDate: offsetDate(9), endDate: offsetDate(14), category: "branding" });
-  els.detailScheduleBox.style.display = "none";
-}
-
-function openProjectEditModal(projectId) {
-  const project = byId(state.projects, projectId);
-  if (!project) return;
-  state.editingProjectId = projectId;
-  els.projectForm.reset();
-  els.projectModalTitle.textContent = "프로젝트 수정";
-  els.projectSubmitButton.textContent = "수정 후 등록";
-  els.projectForm.name.value = project.name;
-  els.projectForm.clientName.value = project.clientName;
-  els.projectForm.color.value = project.color;
-  els.projectForm.type.value = project.type;
-  els.projectForm.category.value = project.category;
-  els.projectForm.startDate.value = project.startDate;
-  els.projectForm.endDate.value = project.endDate;
-  els.projectForm.status.value = project.status;
-  els.detailRows.innerHTML = "";
-  state.schedules
-    .filter((schedule) => schedule.projectId === projectId)
-    .sort((a, b) => a.startDate.localeCompare(b.startDate))
-    .forEach((schedule) => {
-      addDetailRow({
-        phase: schedule.phase,
-        title: schedule.title,
-        startDate: schedule.startDate,
-        endDate: schedule.endDate,
-        category: schedule.category,
-        assigneeUserId: schedule.assigneeUserId,
-        content: schedule.content,
-      });
-    });
-  if (project.type === "complex" && els.detailRows.children.length === 0) {
-    addDetailRow({ category: project.category });
-  }
-  els.detailScheduleBox.style.display = project.type === "complex" ? "block" : "none";
-  els.projectModal.showModal();
-}
-
-function collectDetailRows(projectId, clientName) {
-  return [...els.detailRows.querySelectorAll(".detail-row")]
-    .map((row) => ({
-      projectId,
-      clientName,
-      phase: row.querySelector("[name='detailPhase']").value.trim(),
-      title: row.querySelector("[name='detailTitle']").value.trim(),
-      startDate: row.querySelector("[name='detailStartDate']").value,
-      endDate: row.querySelector("[name='detailEndDate']").value,
-      category: row.querySelector("[name='detailCategory']").value,
-      assigneeUserId: row.querySelector("[name='detailAssignee']").value,
-      content: row.querySelector("[name='detailContent']").value.trim(),
-      status: "pending",
-    }))
-    .filter((schedule) => schedule.phase && schedule.title && schedule.startDate && schedule.endDate);
-}
-
-async function addProjectFromForm(form) {
-  const formData = new FormData(form);
-  const type = formData.get("type");
-  const project = {
-    name: formData.get("name"),
-    clientName: formData.get("clientName"),
-    color: formData.get("color"),
-    type,
-    category: formData.get("category"),
-    startDate: formData.get("startDate"),
-    endDate: formData.get("endDate"),
-    status: formData.get("status"),
-  };
-
-  const createdProjects = await supabaseRequest("projects", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify(projectToDb(project)),
-  });
-  const projectId = createdProjects[0].id;
-
-  const schedules =
-    type === "single"
-      ? [
-          {
-            projectId,
-            phase: "단발 프로젝트",
-            title: project.name,
-            clientName: project.clientName,
-            content: `${project.name} 단발 프로젝트`,
-            startDate: project.startDate,
-            endDate: project.endDate,
-            category: project.category,
-            status: project.status,
-            assigneeUserId: state.currentUserId || state.users[0]?.id || null,
-          },
-        ]
-      : collectDetailRows(projectId, project.clientName);
-
-  if (schedules.length > 0) {
-    await supabaseRequest("schedules", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(schedules.map(scheduleToDb)),
-    });
-  }
-  await loadData();
-}
-
-async function updateProjectFromForm(form, projectId) {
-  const formData = new FormData(form);
-  const type = formData.get("type");
-  const project = {
-    name: formData.get("name"),
-    clientName: formData.get("clientName"),
-    color: formData.get("color"),
-    type,
-    category: formData.get("category"),
-    startDate: formData.get("startDate"),
-    endDate: formData.get("endDate"),
-    status: formData.get("status"),
-  };
-
-  await supabaseRequest(`projects?id=eq.${projectId}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify(projectToDb(project)),
-  });
-
-  await supabaseRequest(`schedules?project_id=eq.${projectId}`, { method: "DELETE" });
-
-  const schedules =
-    type === "single"
-      ? [
-          {
-            projectId,
-            phase: "단발 프로젝트",
-            title: project.name,
-            clientName: project.clientName,
-            content: `${project.name} 단발 프로젝트`,
-            startDate: project.startDate,
-            endDate: project.endDate,
-            category: project.category,
-            status: project.status,
-            assigneeUserId: state.currentUserId || state.users[0]?.id || null,
-          },
-        ]
-      : collectDetailRows(projectId, project.clientName);
-
-  if (schedules.length > 0) {
-    await supabaseRequest("schedules", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(schedules.map(scheduleToDb)),
-    });
-  }
-  state.editingProjectId = "";
-  await loadData();
-}
-
-async function deleteProject(projectId) {
-  const project = byId(state.projects, projectId);
-  if (!project) return;
-  if (!confirm(`"${project.name}" 프로젝트를 정말 삭제할까요?`)) return;
-  await supabaseRequest(`projects?id=eq.${projectId}`, { method: "DELETE" });
-  if (els.projectFilter.value === projectId) {
-    els.projectFilter.value = "all";
-  }
-  await loadData();
-}
-
-function fallbackUserId(userId) {
-  return state.users.find((user) => user.id !== userId)?.id || null;
-}
-
-async function removeUser(userId) {
-  if (userId === state.currentUserId) return;
-  const target = byId(state.users, userId);
-  if (!target) return;
-  const fallback = fallbackUserId(userId);
-  await supabaseRequest(`schedules?assignee_user_id=eq.${userId}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ assignee_user_id: fallback }),
-  });
-  await supabaseRequest(`app_users?id=eq.${userId}`, { method: "DELETE" });
-  await loadData();
-}
-
-async function withdrawUser(userId) {
-  if (userId !== state.currentUserId) return;
-  if (state.users.length <= 1) return;
-  const fallback = fallbackUserId(userId);
-  await supabaseRequest(`schedules?assignee_user_id=eq.${userId}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ assignee_user_id: fallback }),
-  });
-  await supabaseRequest(`app_users?id=eq.${userId}`, { method: "DELETE" });
-  state.currentUserId = fallback || "";
-  await loadData();
-}
-
-document.addEventListener("click", async (event) => {
-  const nav = event.target.closest("[data-view]");
-  if (nav) {
-    state.activeView = nav.dataset.view;
-    saveUi();
-    render();
-  }
-
-  const action = event.target.dataset.action;
-  const id = event.target.dataset.id;
-  try {
-    if (action === "toggleSchedule") {
-      const schedule = byId(state.schedules, id);
-      const status = event.target.checked ? "completed" : "pending";
-      schedule.status = status;
+els.leagueForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const nextName = els.leagueInput.value.trim() || "새싹 투자왕 리그";
+  const nextEndDate = els.endDateInput.value || state.league.endDate;
+  const isChanged = nextName !== state.league.name || nextEndDate !== state.league.endDate;
+  if (isChanged && state.participants.length) {
+    const confirmed = window.confirm(
+      "리그 설정을 수정하면 참여자와 거래 기록에 영향을 줄 수 있습니다. 계속 저장할까요?"
+    );
+    if (!confirmed) {
       render();
-      await supabaseRequest(`schedules?id=eq.${id}`, {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ status }),
-      });
-      await loadData();
+      return;
     }
-    if (action === "removeDetailRow") {
-      event.target.closest(".detail-row")?.remove();
-    }
-    if (action === "deleteProject") {
-      await deleteProject(id);
-    }
-    if (action === "editProject") {
-      openProjectEditModal(id);
-    }
-    if (action === "removeUser") {
-      await removeUser(id);
-    }
-    if (action === "withdrawUser") {
-      await withdrawUser(id);
-    }
-  } catch (error) {
-    alert("Supabase 저장 중 오류가 발생했습니다.");
-    console.error(error);
-    await loadData();
   }
-
-  const tab = event.target.closest("[data-category-tab]");
-  if (tab) {
-    state.activeCategory = tab.dataset.categoryTab;
-    saveUi();
-    render();
-  }
+  state.league.name = nextName;
+  state.league.endDate = nextEndDate;
+  if (state.league.status === "CLOSED" && !isPastEndDate(state.league.endDate)) state.league.status = "ACTIVE";
+  showToast("리그 설정을 저장했습니다.");
+  render();
 });
 
-els.openProjectModal.addEventListener("click", () => {
-  resetProjectModalForCreate();
-  els.projectModal.showModal();
-});
+els.newLeagueBtn.addEventListener("click", startNewLeague);
 
-els.closeProjectModal.addEventListener("click", () => {
-  state.editingProjectId = "";
-  els.projectModal.close();
-});
+els.deleteLeagueBtn.addEventListener("click", deleteCurrentLeague);
 
-els.projectForm.addEventListener("change", (event) => {
-  if (event.target.name === "type") {
-    els.detailScheduleBox.style.display = event.target.value === "complex" ? "block" : "none";
-  }
-  if (event.target.name === "category") {
-    els.detailRows.querySelectorAll("[name='detailCategory']").forEach((select) => {
-      select.value = event.target.value;
-    });
-  }
-});
-
-els.addDetailRow.addEventListener("click", () => addDetailRow());
-
-els.projectForm.addEventListener("submit", async (event) => {
+els.joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  try {
-    if (state.editingProjectId) {
-      await updateProjectFromForm(els.projectForm, state.editingProjectId);
-    } else {
-      await addProjectFromForm(els.projectForm);
-    }
-    els.projectModal.close();
-  } catch (error) {
-    alert("프로젝트 저장 중 오류가 발생했습니다.");
-    console.error(error);
+  if (isClosed()) {
+    showToast("종료된 리그에는 참여할 수 없습니다. 새 리그를 시작해주세요.");
+    return;
   }
+
+  const nickname = els.nicknameInput.value.trim();
+  if (!nickname) {
+    showToast("닉네임을 입력해주세요.");
+    return;
+  }
+
+  const normalizedNickname = normalize(nickname);
+  const exists = state.participants.some((participant) => normalize(participant.nickname) === normalizedNickname);
+  if (exists) {
+    showToast("이미 참여한 닉네임입니다.");
+    return;
+  }
+
+  const urlTicket = new URLSearchParams(window.location.search).get("ticket");
+  const currentTicket = state.league.ticket;
+  if (urlTicket && urlTicket !== currentTicket) {
+    showToast("현재 리그의 링크 티켓이 아닙니다. 새 링크로 다시 접속해주세요.");
+    return;
+  }
+
+  const claimKey = `${currentTicket}:${normalizedNickname}`;
+  if (state.claimedTickets.includes(claimKey)) {
+    showToast("이미 이 리그에서 1,000만원을 받은 아이디입니다.");
+    return;
+  }
+
+  const id = `p${Date.now()}`;
+  state.participants.push({ id, nickname, ticket: currentTicket, cash: getInitialCash(), holdings: [], history: [] });
+  state.claimedTickets.push(claimKey);
+  state.activeParticipantId = id;
+  els.nicknameInput.value = "";
+  showToast(`${nickname}님에게 1,000만원을 지급했습니다.`);
+  render();
 });
 
-els.userForm.addEventListener("submit", async (event) => {
+els.activeUserSelect.addEventListener("change", (event) => {
+  state.activeParticipantId = event.target.value;
+  render();
+});
+
+els.stockSearchInput.addEventListener("input", async (event) => {
+  state.searchQuery = event.target.value;
+  await refreshStocks(state.searchQuery);
+  const filteredStocks = getFilteredStocks();
+  if (filteredStocks.length === 1) {
+    await selectStock(filteredStocks[0].symbol);
+  } else {
+    renderStocks();
+  }
+  saveState();
+});
+
+els.stockSearchInput.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
   event.preventDefault();
-  const formData = new FormData(els.userForm);
-  try {
-    await supabaseRequest("app_users", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(
-        userToDb({
-          name: formData.get("name"),
-          email: formData.get("email"),
-          profileColor: profileColors[state.users.length % profileColors.length],
-        })
-      ),
-    });
-    els.userForm.reset();
-    await loadData();
-  } catch (error) {
-    alert("팀원 저장 중 오류가 발생했습니다.");
-    console.error(error);
+  const filteredStocks = getFilteredStocks();
+  if (!filteredStocks.length) {
+    showToast("검색된 종목이 없습니다.");
+    return;
   }
+  await selectStock(filteredStocks[0].symbol);
+  showToast(`${filteredStocks[0].name} 선택 완료`);
 });
 
-els.currentUserSelect.addEventListener("change", (event) => {
-  state.currentUserId = event.target.value;
-  saveUi();
-  render();
+els.stockList.addEventListener("click", async (event) => {
+  const card = event.target.closest(".stock-card");
+  if (!card) return;
+  await selectStock(card.dataset.symbol);
 });
 
-els.projectFilter.addEventListener("change", render);
-els.userFilter.addEventListener("change", render);
-els.categoryFilter.addEventListener("change", render);
-els.statusFilter.addEventListener("change", render);
-
-els.prevMonth.addEventListener("click", () => {
-  const date = new Date(state.calendarDate);
-  date.setMonth(date.getMonth() - 1);
-  state.calendarDate = date.toISOString();
-  saveUi();
-  render();
+els.chartTabs.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-range]");
+  if (!button) return;
+  state.chartRange = button.dataset.range;
+  renderChart();
+  await loadSelectedChart();
+  saveState();
 });
 
-els.nextMonth.addEventListener("click", () => {
-  const date = new Date(state.calendarDate);
-  date.setMonth(date.getMonth() + 1);
-  state.calendarDate = date.toISOString();
-  saveUi();
-  render();
+els.buyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await buySelectedStock();
 });
 
-if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {
-      // Local file previews do not support service workers. GitHub Pages will.
-    });
+els.sellForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const amount = Number(els.sellAmountInput.value.replaceAll(",", ""));
+  if (!selectedHoldingSymbol) {
+    showToast("매도할 보유 종목을 먼저 선택해주세요.");
+    return;
+  }
+  sellHolding(selectedHoldingSymbol, amount);
+});
+
+els.sellFullBtn.addEventListener("click", () => {
+  if (!selectedHoldingSymbol) {
+    showToast("매도할 보유 종목을 먼저 선택해주세요.");
+    return;
+  }
+  sellHolding(selectedHoldingSymbol);
+});
+
+els.holdingsList.addEventListener("click", (event) => {
+  const row = event.target.closest(".holding-row");
+  if (!row) return;
+  selectHoldingForSell(row.dataset.symbol);
+});
+
+els.closeLeagueBtn.addEventListener("click", () => {
+  const confirmed = window.confirm(
+    "리그를 종료하면 더 이상 참여와 거래를 할 수 없습니다. 종료할까요?"
+  );
+  if (!confirmed) return;
+  state.league.status = "CLOSED";
+  state.closedLeagues.push({
+    name: state.league.name,
+    status: "CLOSED",
+    endedAt: new Date().toLocaleDateString("ko-KR"),
+    participantCount: state.participants.length
   });
-}
+  showToast("리그가 종료되어 최종 순위가 고정되었습니다.");
+  render();
+});
 
-loadData();
+render();
+loadKrxMaster().then(() => refreshStocks()).finally(async () => {
+  render();
+  await loadSelectedChart();
+});
